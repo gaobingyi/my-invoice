@@ -86,12 +86,29 @@ public class InvoiceService {
             String filename = buildFilename(p, name, number != null ? number : sentinel);
             Path dest = uploadDir.resolve(filename);
             if (!dest.equals(tmp)) {
-                try {
-                    // pocfile: no REPLACE_EXISTING — a duplicate upload must 409, not clobber
-                    // the previously stored PDF the surviving row still points at.
-                    Files.move(tmp, dest);
-                } catch (FileAlreadyExistsException e) {
-                    throw new DuplicateInvoiceException(number);
+                // pocfile: dest 上若有同名文件，先查 DB 区分"真重复"和"孤儿文件"。
+                // 孤儿来源：JVM 在 Files.move 后、repository.save 前崩溃；或 save() 抛非 UNIQUE
+                // 的 DataIntegrityViolation（catch 块不删 dest）。这俩情况都让 dest 留在磁盘但
+                // 无对应行 —— 放任会永久屏蔽同号重传。做法：DB 无该号则视为孤儿，删了重试。
+                String dbKey = number != null ? number : sentinel;
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    try {
+                        Files.move(tmp, dest);
+                        break;
+                    } catch (FileAlreadyExistsException e) {
+                        if (repository.existsByInvoiceNumber(dbKey)) {
+                            // 真重复：DB 已有同号行，dest 上的文件就是它的源 PDF，碰不得。
+                            throw new DuplicateInvoiceException(number != null ? number : "UNKNOWN");
+                        }
+                        // 孤儿文件：DB 没对应行，删了重试。第二次循环 Files.move 必然成功
+                        // （除非并发另一进程又写进来，那会被下一次 try 拦下再判）。
+                        Files.deleteIfExists(dest);
+                        if (attempt == 1) {
+                            // 防御：连续两次都进 catch 但都没 DB 行，理论不该发生。
+                            throw new IllegalStateException(
+                                    "无法清理孤儿文件: " + dest + " (DB 无 " + dbKey + ")", e);
+                        }
+                    }
                 }
             }
 
