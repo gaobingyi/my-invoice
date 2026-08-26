@@ -100,7 +100,7 @@ JPA `ddl-auto: none`（SQLite 类型亲和非严格，validate 频繁误报；sc
 
 - 登录：`POST /api/auth/login`（body `{username,password}`）→ `{token,username}`。**公开**路径只有 `/api/auth/**`（含 `GET /api/auth/ping`，供 Docker healthcheck），其余 `/api/**` 一律 401。
 - 用户表 `app_user`：单管理员，启动时 `AuthService.run` 若无用户则 seed（`ADMIN_USERNAME`/`ADMIN_PASSWORD` 覆盖，默认 `admin`/`admin123`），BCrypt 散列。密码错误 → `BadCredentialsException` → 401。
-- 登录限流：`LoginRateLimiter`（内存计数，按 IP+用户名，配置 `auth.rate-limit-enabled`，默认开启），防暴力破解。
+- 登录限流：`LoginRateLimiter`（内存计数，按 IP+用户名，配置 `login.rate-limit-enabled`，默认开启），防暴力破解。
 - 认证链路：`JwtAuthenticationFilter`（Bearer 解析 → `SecurityContextHolder`）→ `JwtTokenService`（jjwt，secret 从 `JWT_SECRET` 读，默认值仅限 dev）。CSRF 关闭、无 Session（STATELESS）。
 - **文件端点带不了 header**：预览/下载前端用 `fetchFile()`（axios `responseType: 'blob'`）取回 object URL，不再用裸 URL 字符串。改前端勿退回 `fileUrl()` 裸链。
 - E2E/健康检查：所有 API 直调需 `Authorization: Bearer` 头；E2E 先登录拿 token，页面用 `evaluateOnNewDocument` 注入 localStorage。

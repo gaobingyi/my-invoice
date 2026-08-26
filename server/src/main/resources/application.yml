@@ -20,30 +20,29 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
-# 历史：早期这些都在 app.* 子树，对应 env var 带 APP_ 前缀；commit 6648e3e 去
-# APP_ 前缀后，属性也搬到根（commit 4c4d44 起彻底去掉 app.* 命名空间），与
-# spring.* / logging.* / server.* 同级。
-
 upload-dir: ${UPLOAD_DIR:./uploads}
+
 jwt:
   secret: ${JWT_SECRET:change-me-in-production-please-32bytes-or-more}
   expire-seconds: 86400   # 24h
-auth:
-  rate-limit-enabled: true
-  # 仅当后端确实在可信反向代理之后才置 true（nginx 会覆盖客户端 X-Real-IP）。
-  # compose 里硬编码 true；yml 默认 false 给本地 dev 用。
+
+login:
+  rate-limit-enabled: true  # 登录端点：单 IP 失败次数超阈值 → 401（内存计数，重启清零）
+  # 后端在可信反代（nginx）后置 true，限流按 X-Real-IP（CF-Connecting-IP）算真客户端 IP。
+  # 直连 / vite proxy 时保持 false：客户端可伪造 X-Real-IP 绕过限流。
+  # compose 硬编码 true；本地 dev yml 默认 false。
   trust-proxy: false
 
 admin:
   username: ${ADMIN_USERNAME:admin}
   password: ${ADMIN_PASSWORD:admin123}
+
 llm:
-  base-url: ${LLM_BASE_URL:https://opencode.ai/zen/v1}
-  model: ${LLM_MODEL:big-pickle}
   enabled: ${LLM_ENABLED:true}
+  base-url: ${LLM_BASE_URL:https://opencode.ai/zen/v1}
+  api-key: ${LLM_API_KEY:public}
+  model: ${LLM_MODEL:big-pickle}
   timeout-seconds: 60
-  # dev 默认 key 已内嵌（个人 dev key，无安全价值）；部署/不同 key 仍可设 LLM_API_KEY env 覆盖
-  api-key: ${LLM_API_KEY:sk-J7LGINZ7IRCh43z1ahN1j3OxN7n9zkoEeTX1LtMj4nD6hjt7ErvCiDyYUU09LjNl}
   
 logging:
   file:
