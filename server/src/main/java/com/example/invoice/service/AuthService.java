@@ -29,8 +29,8 @@ public class AuthService implements CommandLineRunner {
                        PasswordEncoder passwordEncoder,
                        JwtTokenService jwtTokenService,
                        LoginRateLimiter rateLimiter,
-                       @Value("${app.admin.username:admin}") String adminUsername,
-                       @Value("${app.admin.password:admin123}") String adminPassword) {
+                       @Value("${admin.username:admin}") String adminUsername,
+                       @Value("${admin.password:admin123}") String adminPassword) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenService = jwtTokenService;

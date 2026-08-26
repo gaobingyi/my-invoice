@@ -86,7 +86,7 @@ chmod 600 certs/origin.key
 ```
 /opt/invoice/
 ├── docker-compose.yml
-├── .env                     # 根 .env：LLM_API_KEY、JWT_SECRET、APP_ADMIN_PASSWORD（SQLite 无 DB 凭据）
+├── .env                     # 根 .env：LLM_API_KEY、JWT_SECRET、ADMIN_PASSWORD（SQLite 无 DB 凭据）
 ├── web/
 │   ├── nginx.conf
 │   ├── cf-allow.conf        # 允许 CF IP 段与本地私网网段
@@ -116,12 +116,12 @@ services:
       APP_UPLOAD_DIR: /app/uploads
       LOGGING_FILE_NAME: /app/logs/invoice-server.log
       APP_LLM_ENABLED: "true"
-      APP_LLM_BASE_URL: ${APP_LLM_BASE_URL:-https://opencode.ai/zen/v1}
-      APP_LLM_MODEL: ${APP_LLM_MODEL:-oc/deepseek-v4-flash-free}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://opencode.ai/zen/v1}
+      LLM_MODEL: ${LLM_MODEL:-oc/deepseek-v4-flash-free}
       LLM_API_KEY: ${LLM_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
-      APP_ADMIN_USERNAME: ${APP_ADMIN_USERNAME:-admin}
-      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?set APP_ADMIN_PASSWORD in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       TZ: Asia/Shanghai
       JAVA_OPTS: -Xmx256m -Xms128m -XX:+UseSerialGC -XX:MaxRAMPercentage=50
     volumes:
@@ -258,9 +258,9 @@ CMD ["nginx", "-g", "daemon off;"]
 # SQLite 是文件式数据库，无 DB 凭据。
 LLM_API_KEY=sk-xxx
 JWT_SECRET=change-me-32-chars-minimum!!!
-APP_ADMIN_PASSWORD=admin123
-APP_LLM_BASE_URL=https://opencode.ai/zen/v1
-APP_LLM_MODEL=oc/deepseek-v4-flash-free
+ADMIN_PASSWORD=admin123
+LLM_BASE_URL=https://opencode.ai/zen/v1
+LLM_MODEL=oc/deepseek-v4-flash-free
 ```
 
 ---
@@ -322,7 +322,7 @@ docker compose ps   # 全部 healthy
 - [ ] `cf-allow.conf` 仅含 CF IP 与私网/回环段，阻断外网直连
 - [ ] VPS 防火墙（ufw/iptables/security group）**仅对 CF IP 开放 8088**，其它拒绝
 - [ ] `JWT_SECRET` ≥ 32 字符，已写入 `.env`，未提交 git
-- [ ] `LLM_API_KEY`、`APP_ADMIN_PASSWORD` 仅在 `.env`，未提交 git
+- [ ] `LLM_API_KEY`、`ADMIN_PASSWORD` 仅在 `.env`，未提交 git
 - [ ] 定期 `docker compose pull && docker compose up -d --build` 更新基础镜像
 
 ---

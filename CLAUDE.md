@@ -38,7 +38,7 @@ docker compose down -v                  # 停止+清卷
 ### 环境前置
 
 - SQLite 是文件式数据库，**首次启动自动建表**（`spring.sql.init.mode: always` 触发 `server/src/main/resources/schema.sql`）。开发期 DB 落 `./data/invoice.db`，容器内 `/app/data/invoice.db`（命名卷 `backend-db`）。
-- LLM 兜底调用任意 OpenAI chat-completions 兼容服务，`app.llm.base-url` 可配（当前指向 `https://opencode.ai/zen/v1`，model `big-pickle`）。API key 从环境变量 `LLM_API_KEY` 读取（`server/.env` 提供，gitignored）。`app.llm.enabled: false` 可关闭。
+- LLM 兜底调用任意 OpenAI chat-completions 兼容服务，`llm.base-url` 可配（当前指向 `https://opencode.ai/zen/v1`，model `big-pickle`）。API key 从环境变量 `LLM_API_KEY` 读取（`server/.env` 提供，gitignored）。`llm.enabled: false` 可关闭。
 - E2E 需要 `google-chrome-stable`（`/usr/bin/google-chrome-stable`）与 Xvfb 虚拟显示。
 
 ## Docker 部署（`docker-compose.yml`）
@@ -51,8 +51,8 @@ docker compose down -v                  # 停止+清卷
 | `nginx` | `invoice-web`（`web/Dockerfile` 多阶段） | node 构建 dist → nginx 服务，对外 8088，反代 `/api` 到 backend |
 
 **双 `.env` 分离**（值不一致，勿混）：
-- **根 `.env`**：docker compose 变量源（`LLM_API_KEY`、`APP_LLM_*`、必填 `JWT_SECRET`/`APP_ADMIN_PASSWORD`），compose 同目录。SQLite 无 DB 凭据，故 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除。`LLM_API_KEY` 在 `application.yml` 也有 dev default（个人 dev key），本地不起后端可不 source。
-- 容器内 DB 用 `/app/data/invoice.db`（命名卷 `backend-db`）；本地 DB 用 `./data/invoice.db`（相对 `server/` cwd）；LLM 用根 `.env` 的 `APP_LLM_BASE_URL` 覆盖 `application.yml` 的 base-url。
+- **根 `.env`**：docker compose 变量源（`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、必填 `JWT_SECRET`/`ADMIN_PASSWORD`），compose 同目录。SQLite 无 DB 凭据，故 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除。`LLM_API_KEY` 在 `application.yml` 也有 dev default（个人 dev key），本地不起后端可不 source。
+- 容器内 DB 用 `/app/data/invoice.db`（命名卷 `backend-db`）；本地 DB 用 `./data/invoice.db`（相对 `server/` cwd）；LLM 用根 `.env` 的 `LLM_BASE_URL` 覆盖 `application.yml` 的 base-url。
 
 ## schema 双写
 
@@ -99,7 +99,7 @@ JPA `ddl-auto: none`（SQLite 类型亲和非严格，validate 频繁误报；sc
 ## 认证架构（JWT）
 
 - 登录：`POST /api/auth/login`（body `{username,password}`）→ `{token,username}`。**公开**路径只有 `/api/auth/**`（含 `GET /api/auth/ping`，供 Docker healthcheck），其余 `/api/**` 一律 401。
-- 用户表 `app_user`：单管理员，启动时 `AuthService.run` 若无用户则 seed（`APP_ADMIN_USERNAME`/`APP_ADMIN_PASSWORD` 覆盖，默认 `admin`/`admin123`），BCrypt 散列。密码错误 → `BadCredentialsException` → 401。
+- 用户表 `app_user`：单管理员，启动时 `AuthService.run` 若无用户则 seed（`ADMIN_USERNAME`/`ADMIN_PASSWORD` 覆盖，默认 `admin`/`admin123`），BCrypt 散列。密码错误 → `BadCredentialsException` → 401。
 - 登录限流：`LoginRateLimiter`（内存计数，按 IP+用户名，配置 `app.auth.rate-limit-enabled`，默认开启），防暴力破解。
 - 认证链路：`JwtAuthenticationFilter`（Bearer 解析 → `SecurityContextHolder`）→ `JwtTokenService`（jjwt，secret 从 `JWT_SECRET` 读，默认值仅限 dev）。CSRF 关闭、无 Session（STATELESS）。
 - **文件端点带不了 header**：预览/下载前端用 `fetchFile()`（axios `responseType: 'blob'`）取回 object URL，不再用裸 URL 字符串。改前端勿退回 `fileUrl()` 裸链。

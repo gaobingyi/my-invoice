@@ -28,11 +28,11 @@ public class InvoiceLlmExtractor {
     private final boolean enabled;
 
     public InvoiceLlmExtractor(
-            @Value("${app.llm.base-url:}") String baseUrl,
-            @Value("${app.llm.model:}") String model,
-            @Value("${app.llm.enabled:true}") boolean enabled,
-            @Value("${app.llm.timeout-seconds:60}") int timeoutSeconds,
-            @Value("${app.llm.api-key:}") String apiKey,
+            @Value("${llm.base-url:}") String baseUrl,
+            @Value("${llm.model:}") String model,
+            @Value("${llm.enabled:true}") boolean enabled,
+            @Value("${llm.timeout-seconds:60}") int timeoutSeconds,
+            @Value("${llm.api-key:}") String apiKey,
             RestClient.Builder builder) {
         this.model = model;
         this.enabled = enabled;

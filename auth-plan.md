@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS app_user (
 - `entity/User.java` — 对应 `app_user`，仅 username/passwordHash
 - `repository/UserRepository.java` — `findByUsername(String)`
 - `dto/LoginRequest.java`（username/password，带 `@NotBlank`）、`dto/LoginResponse.java`（token、username）
-- `service/AuthService.java` — `login()` 用 `PasswordEncoder.matches` 校验 + 签 JWT；`CommandLineRunner` 逻辑放这里：查无 admin 则插入（默认 `admin/admin123`，可被 `APP_ADMIN_USERNAME`/`APP_ADMIN_PASSWORD` 覆盖）
+- `service/AuthService.java` — `login()` 用 `PasswordEncoder.matches` 校验 + 签 JWT；`CommandLineRunner` 逻辑放这里：查无 admin 则插入（默认 `admin/admin123`，可被 `ADMIN_USERNAME`/`ADMIN_PASSWORD` 覆盖）
 - `service/JwtTokenService.java` — 签发/解析/校验，secret 与过期时间从 `@Value("${app.jwt.secret}")` 读
 - `config/SecurityConfig.java` — `SecurityFilterChain` bean：
   - `permitAll("/api/auth/**")`，其余 `/api/**` `authenticated`
@@ -60,8 +60,8 @@ app:
     secret: ${JWT_SECRET:invoice-manager-dev-secret-change-me}
     expire-seconds: 86400   # 24h
   admin:
-    username: ${APP_ADMIN_USERNAME:admin}
-    password: ${APP_ADMIN_PASSWORD:admin123}
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:admin123}
 ```
 
 ### 5. 现有代码影响
@@ -104,13 +104,13 @@ app:
 
 ## 配置 / Docker
 
-- `docker-compose.yml` backend 环境追加：`JWT_SECRET: ${JWT_SECRET:...}`、`APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-admin123}`，**健康检查改**为 `wget --spider http://localhost:8080/api/auth/ping`（公开端点）
-- 根 `.env.example` 追加 `JWT_SECRET`、`APP_ADMIN_PASSWORD` 说明
+- `docker-compose.yml` backend 环境追加：`JWT_SECRET: ${JWT_SECRET:...}`、`ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}`，**健康检查改**为 `wget --spider http://localhost:8080/api/auth/ping`（公开端点）
+- 根 `.env.example` 追加 `JWT_SECRET`、`ADMIN_PASSWORD` 说明
 - `server/.env`（gitignored）本地 dev 可加 `JWT_SECRET`
 - `web/nginx.conf` 已含 `try_files ... /index.html` SPA 回退，**无需改**；`vite.config.js` 无需改（dev proxy 不变）
 
 ## 文档
-- `README.md`：加登录说明（默认账号 `admin/admin123`，生产用 `APP_ADMIN_PASSWORD` 改）、JWT_SECRET 配置
+- `README.md`：加登录说明（默认账号 `admin/admin123`，生产用 `ADMIN_PASSWORD` 改）、JWT_SECRET 配置
 - `CLAUDE.md`：补充认证架构简述（auth 流程、`/api/auth/**` 公开、文件端点走 blob）
 
 ## 验证

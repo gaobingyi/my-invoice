@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 🔐 登录认证（JWT）：默认账号 `admin` / `admin123`，生产用 `APP_ADMIN_PASSWORD` 修改
+- 🔐 登录认证（JWT）：默认账号 `admin` / `admin123`，生产用 `ADMIN_PASSWORD` 修改
 - 📤 上传 PDF 发票（单张/批量 ≤20），自动解析字段
 - 🔎 解析：发票号码、开票日期、购/销方名称与税号、金额/税额/价税合计、项目名称、开票人
 - 📋 列表展示 + 分页（按上传时间倒序）
@@ -25,13 +25,13 @@
 
 ```bash
 # 1. 准备环境变量（.env 已被 gitignore）
-cp .env.example .env   # 或手动创建：LLM_API_KEY / JWT_SECRET / APP_ADMIN_*（SQLite 无 DB 凭据）
+cp .env.example .env   # 或手动创建：LLM_API_KEY / JWT_SECRET / ADMIN_USERNAME / ADMIN_PASSWORD（SQLite 无 DB 凭据）
 
 # 2. 构建 + 启动
 docker compose up -d --build
 
 # 3. 访问
-# http://localhost:8088   （登录：admin / admin123，可用 APP_ADMIN_PASSWORD 覆盖）
+# http://localhost:8088   （登录：admin / admin123，可用 ADMIN_PASSWORD 覆盖）
 ```
 
 ### 本地开发

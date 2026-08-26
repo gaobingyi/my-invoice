@@ -128,17 +128,17 @@ vi .env
 # 云端 .env —— 勿提交，勿与本地 .env 混用
 # SQLite 是文件式数据库，无 DB 凭据。
 LLM_API_KEY=你的新 key
-APP_LLM_MODEL=big-pickle
-APP_LLM_BASE_URL=https://opencode.ai/zen/v1
+LLM_MODEL=big-pickle
+LLM_BASE_URL=https://opencode.ai/zen/v1
 # 登录认证：
 JWT_SECRET=更换为随机强密钥
-APP_ADMIN_USERNAME=admin
-APP_ADMIN_PASSWORD=更换为强密码
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=更换为强密码
 ```
 
 **安全要求**：
 - `JWT_SECRET` 必须设置，否则后端回退 dev 默认密钥（不安全）——用 `openssl rand -base64 48`
-- `APP_ADMIN_PASSWORD` 别用默认 `admin123`，生产必须改
+- `ADMIN_PASSWORD` 别用默认 `admin123`，生产必须改
 - 云上 `chmod 600 .env`
 - 本地/云端 `.env` 都是 gitignored，**绝不提交仓库**
 
@@ -146,12 +146,12 @@ APP_ADMIN_PASSWORD=更换为强密码
 
 | 值 | 本地（根 `.env`） | 云端 `.env` |
 |---|---|---|
-| `APP_LLM_BASE_URL` | `https://opencode.ai/zen/v1` | 相同（海外可达） |
+| `LLM_BASE_URL` | `https://opencode.ai/zen/v1` | 相同（海外可达） |
 | `LLM_API_KEY` | 你的 key | 同 key 或云上新 key |
 | `JWT_SECRET` | 本地随机值（已在根 `.env`） | 云上新随机值（**两端不同**，改了 token 全失效可接受） |
-| `APP_ADMIN_PASSWORD` | `admin123`（开发） | 随机强密码 |
+| `ADMIN_PASSWORD` | `admin123`（开发） | 随机强密码 |
 
-> 登录说明：默认管理员 `admin`，密码由 `APP_ADMIN_PASSWORD` 指定（不设则 `admin123`）。JWT 24h 过期，前端 localStorage 存 token。
+> 登录说明：默认管理员 `admin`，密码由 `ADMIN_PASSWORD` 指定（不设则 `admin123`）。JWT 24h 过期，前端 localStorage 存 token。
 
 ---
 
@@ -228,7 +228,7 @@ curl -s http://localhost:8088/api/auth/ping   # → pong（公开探活）
 # 业务端点已 401 保护：先登录拿 token 再访问
 TOKEN=$(curl -s -X POST http://localhost:8088/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d "{\"username\":\"$APP_ADMIN_USERNAME\",\"password\":\"$APP_ADMIN_PASSWORD\"}" \
+  -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 curl -s http://localhost:8088/api/invoices -H "Authorization: Bearer $TOKEN"   # → {"content":[],...}
 ```
@@ -238,7 +238,7 @@ curl -s http://localhost:8088/api/invoices -H "Authorization: Bearer $TOKEN"   #
 - 有域名 → `https://invoice.example.com`（5.2）
 
 验证项：
-1. 浏览器访问 → 跳 `/login` → 用 `APP_ADMIN_USERNAME` / `APP_ADMIN_PASSWORD` 登录成功
+1. 浏览器访问 → 跳 `/login` → 用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录成功
 2. 列表页正常渲染
 3. 上传样例 PDF → 解析 → 入库 → 列表出现
 4. 预览/下载/删除可用
@@ -328,7 +328,7 @@ docker load < images.tar.gz && cd /opt/invoice && docker compose up -d
 
 - [ ] `.env` `chmod 600`，强密码，未进仓库
 - [ ] `JWT_SECRET` 已设强随机值（未设 = dev 默认密钥，可伪造 token）
-- [ ] `APP_ADMIN_PASSWORD` 已改（未改 = `admin123`，可被猜）
+- [ ] `ADMIN_PASSWORD` 已改（未改 = `admin123`，可被猜）
 - [ ] SQLite DB 文件**未**暴露公网（compose 无 `backend-db` 卷挂到公网路径；DB 在容器内 `/app/data/`）
 - [ ] HTTPS 已启用（Cloudflare Tunnel 或 Caddy）
 - [ ] backend/nginx 有 `restart: unless-stopped`
