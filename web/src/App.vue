@@ -159,6 +159,11 @@ body { background: var(--el-bg-color-page); }
 .main .el-card {
   border-radius: 0;
   background: var(--el-bg-color);
+  border: none;
+  box-shadow: none;
+}
+.main .el-table {
+  --el-table-border-color: transparent;
 }
 /* 内容区：撑满剩余高度 */
 .content {
@@ -177,6 +182,7 @@ body { background: var(--el-bg-color-page); }
   justify-content: flex-end;
   gap: 14px;
   padding: 12px 24px;
+  background: var(--el-bg-color);
 }
 .user-entry {
   display: flex;
@@ -195,13 +201,14 @@ body { background: var(--el-bg-color-page); }
 .main > div { display: flex; flex-direction: column; min-height: 100%; }
 .main > div > * { flex: 1; min-height: 0; }
 /* 页面切换动效：挂载入场动画（不用 Vue <transition>：页面内含 el-dialog 且
-   teleport 关闭时遮罩是视图子孙节点，会干扰 transitionend 判定导致二次导航空白） */
+   teleport 关闭时遮罩是视图子孙节点，会干扰 transitionend 判定导致二次导航空白）
+   仅保留 fade，去掉 translateY 减少视觉噪音 */
 .main > div:not(.el-overlay) {
-  animation: page-in 0.25s ease;
+  animation: page-in 0.2s ease;
 }
 @keyframes page-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .main::-webkit-scrollbar { width: 8px; height: 8px; }
 .main::-webkit-scrollbar-thumb { background: var(--el-border-color); border-radius: 4px; }
@@ -213,7 +220,7 @@ body { background: var(--el-bg-color-page); }
   display: flex;
   flex-direction: column;
   background: var(--el-bg-color);
-  border-right: 1px solid var(--el-border-color-light);
+  border-right: 1px solid var(--el-border-color-lighter);
   transition: width 0.2s;
 }
 .sidebar .el-menu {
@@ -231,10 +238,16 @@ body { background: var(--el-bg-color-page); }
 }
 .sidebar.collapsed .sidebar-head {
   flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
   height: auto;
-  padding: 14px 0 10px;
+  padding: 14px 0 6px;
+}
+/* 折叠态 toggle 缩小，与 logo 紧凑排列 */
+.sidebar.collapsed .sidebar-toggle {
+  width: 28px;
+  height: 28px;
 }
 .sidebar-logo {
   display: flex;
@@ -316,13 +329,28 @@ body { background: var(--el-bg-color-page); }
 }
 /* 折叠时胶囊贴边，去掉水平 margin 与 EP 默认 padding，图标居中 */
 .sidebar .el-menu--collapse .el-menu-item {
-  margin: 4px 0;
-  padding: 0;
+  margin: 4px 8px;
+  padding: 0 !important;
   justify-content: center;
+  align-items: center;
+}
+/* 覆盖 EP 折叠态 tooltip trigger 的绝对定位 + 内边距，让图标真正居中 */
+.sidebar .el-menu--collapse .el-menu-item .el-menu-tooltip__trigger {
+  padding: 0 !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+.sidebar .el-menu--collapse .el-menu-item .el-icon {
+  margin: 0 !important;
 }
 .sidebar .el-menu--collapse .el-menu-item.is-active::before {
   width: 2px;
   height: 14px;
   left: 2px;
+}
+/* 折叠态：active 改用背景色标识（细条在 64px 侧栏里几乎看不见） */
+.sidebar .el-menu--collapse .el-menu-item.is-active {
+  background: var(--el-color-primary-light-8);
 }
 </style>

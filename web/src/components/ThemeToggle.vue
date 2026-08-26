@@ -7,7 +7,6 @@
     <button
       type="button"
       class="theme-toggle"
-      :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
       @click="toggleTheme"
     >
       <el-icon :size="17"><Sunny v-if="isDark" /><Moon v-else /></el-icon>

@@ -32,6 +32,7 @@
         <div class="file-row" v-for="f in files" :key="f.uid">
           <el-icon class="file-icon"><document /></el-icon>
           <span class="file-name">{{ f.name }}</span>
+          <span class="file-size">{{ formatSize(f.size) }}</span>
           <el-icon class="file-remove" @click="removeFile(f)"><close /></el-icon>
         </div>
       </div>
@@ -79,6 +80,13 @@ function removeFile(f) {
 
 function onExceed() {
   ElMessage.warning('一次最多选 20 张（后端单请求限制 10MB，20 张超出请分批）')
+}
+
+function formatSize(bytes) {
+  if (!bytes && bytes !== 0) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
 const router = useRouter()
@@ -164,15 +172,19 @@ async function doUpload() {
   border-radius: 12px;
   border: 2px dashed var(--el-border-color);
   background: var(--el-fill-color-lighter);
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
 }
 .upload-body :deep(.el-upload-dragger:hover) {
   border-color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(79, 107, 245, 0.12);
 }
 .upload-body :deep(.el-upload-dragger.is-dragover) {
   border-color: var(--el-color-primary);
   background: var(--el-color-primary-light-8);
+  transform: scale(1.01);
+  box-shadow: 0 12px 32px rgba(79, 107, 245, 0.18);
 }
 .upload-body :deep(.el-upload-dragger:hover .el-icon) {
   transform: scale(1.1);
@@ -235,6 +247,12 @@ async function doUpload() {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--el-text-color-regular);
+}
+.file-size {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+  margin-right: 4px;
 }
 .file-remove {
   cursor: pointer;

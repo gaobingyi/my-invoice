@@ -54,7 +54,7 @@
           <el-tag v-else size="small" type="success">未使用</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="preview(row)">预览</el-button>
           <el-button link @click="download(row)">下载</el-button>
@@ -62,8 +62,10 @@
         </template>
       </el-table-column>
     </el-table>
+    <div class="table-scroll-hint" aria-hidden="true"></div>
 
     <el-pagination
+      v-if="total > 0"
       class="pager"
       layout="total, prev, pager, next"
       :total="total"
@@ -289,6 +291,7 @@ watch(showUsed, () => {
 }
 :deep(.el-card__body) {
   padding: 16px;
+  position: relative;
 }
 .list-toolbar {
   display: flex;
@@ -300,6 +303,12 @@ watch(showUsed, () => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.list-title .el-tag {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-color: transparent;
+  font-weight: 500;
 }
 .list-refresh { margin-left: 4px; }
 .batch-actions {
@@ -314,6 +323,10 @@ watch(showUsed, () => {
   transform: scale(1.1);
   transform-origin: left center;
   margin-right: 4px;
+}
+/* 开关 inline-prompt 文字：inactive 灰底上白色文字看不清，改深色 */
+:deep(.batch-actions .el-switch:not(.is-checked) .el-switch__inner-wrapper) {
+  color: var(--el-text-color-regular);
 }
 .batch-summary {
   font-size: 13px;
@@ -338,6 +351,26 @@ watch(showUsed, () => {
 :deep(.el-table .el-button + .el-button) {
   margin-left: 4px;
 }
+/* 表格横向溢出时右侧渐变遮罩，提示用户可滚动查看更多列 */
+:deep(.el-table) {
+  position: relative;
+}
+.table-scroll-hint {
+  display: none;
+}
+@media (max-width: 1400px) {
+  .table-scroll-hint {
+    display: block;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 40px;
+    background: linear-gradient(to left, var(--el-bg-color) 0%, transparent 100%);
+    pointer-events: none;
+    z-index: 2;
+  }
+}
 /* 窄屏：分页居中；768 与其他处对齐见 src/styles/tokens.css */
 @media (max-width: 768px) {
   .pager {
@@ -349,6 +382,8 @@ watch(showUsed, () => {
   height: 70vh;
   border: none;
   border-radius: 8px;
+  box-shadow: var(--shadow-iframe);
+  background: var(--el-fill-color-lighter);
 }
 .preview-nav {
   display: flex;
@@ -366,7 +401,7 @@ watch(showUsed, () => {
 .export-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 .export-field {
   display: flex;

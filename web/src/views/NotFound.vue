@@ -2,6 +2,7 @@
   <div class="not-found">
     <div class="not-found-inner">
       <div class="nf-code">404</div>
+      <div class="nf-divider"></div>
       <p class="nf-text">页面不存在或已被移除</p>
       <el-button type="primary" round @click="router.push('/')">返回首页</el-button>
     </div>
@@ -27,18 +28,25 @@ const router = useRouter()
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 16px;
   color: var(--el-text-color-secondary);
 }
 .nf-code {
-  font-size: 72px;
+  font-size: 80px;
   font-weight: 700;
-  letter-spacing: 4px;
+  letter-spacing: 6px;
   background: var(--brand-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   line-height: 1;
+}
+.nf-divider {
+  width: 48px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--brand-gradient);
+  opacity: 0.6;
 }
 .nf-text {
   font-size: 15px;

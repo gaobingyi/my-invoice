@@ -149,7 +149,17 @@ html.dark .login-page {
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+/* 底部品牌渐变条：增加视觉层次感 */
+.login-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--brand-gradient);
 }
 .login-title {
   display: flex;

@@ -7,4 +7,5 @@
   --radius-card: 12px;
   --shadow-card: 0 6px 24px rgba(30, 60, 120, 0.08);
   --shadow-card-hover: 0 10px 32px rgba(30, 60, 120, 0.14);
+  --shadow-iframe: 0 2px 12px rgba(0, 0, 0, 0.08);
 }

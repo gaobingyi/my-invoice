@@ -81,6 +81,7 @@
     </el-dialog>
 
     <el-pagination
+      v-if="total > 0"
       class="pager"
       layout="total, prev, pager, next"
       :total="total"
@@ -268,6 +269,12 @@ onMounted(load)
   align-items: center;
   gap: 10px;
 }
+.list-title .el-tag {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-color: transparent;
+  font-weight: 500;
+}
 .list-refresh { margin-left: 4px; }
 .pager {
   margin-top: 16px;
@@ -302,6 +309,8 @@ onMounted(load)
   height: 75vh;
   border: none;
   border-radius: 8px;
+  box-shadow: var(--shadow-iframe);
+  background: var(--el-fill-color-lighter);
 }
 .pdf-nav {
   display: flex;
