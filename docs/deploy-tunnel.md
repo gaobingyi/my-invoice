@@ -67,6 +67,10 @@ services:
       # SQLite 文件式 DB，由命名卷 backend-db 持久化。date_class=TEXT 让 Xerial JDBC
       # 读写 timestamp 都用 ISO-8601（避免 INTEGER epoch ms 写入与 ISO 读解析错位）。
       SPRING_DATASOURCE_URL: jdbc:sqlite:/app/data/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
+      # 上传目录：与下方 backend-data 卷挂载点必须一致。
+      # 故意硬编码 + 不放进 .env：避免"改了 UPLOAD_DIR 但卷没挂到新路径"导致
+      # 文件落容器内 tmpfs 重启丢失、DB 留孤儿行。改路径时连 volume 一起改。
+      # dev 本地用 ./uploads（yml 默认）；container 用 /app/uploads。
       UPLOAD_DIR: /app/uploads
       LOGGING_FILE_NAME: /app/logs/invoice-server.log
       LLM_ENABLED: "true"
