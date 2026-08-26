@@ -6,6 +6,7 @@ import com.example.invoice.service.AuthService;
 import com.example.invoice.service.BadCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,9 +16,12 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+    private final boolean trustProxy;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService,
+                          @Value("${app.auth.trust-proxy:false}") boolean trustProxy) {
         this.authService = authService;
+        this.trustProxy = trustProxy;
     }
 
     @PostMapping("/login")
@@ -36,12 +40,16 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
     }
 
-    private static String clientIp(HttpServletRequest req) {
-        // 优先信任 nginx 设置的 X-Real-IP（不可被客户端伪造）。
+    private String clientIp(HttpServletRequest req) {
+        // pocfile: 只有部署在可信反向代理之后（compose 里 nginx 设 app.auth.trust-proxy=true）
+        // 才信任 X-Real-IP——nginx 会覆盖客户端带来的该头。dev（vite proxy）或直连 8080 时
+        // X-Real-IP 可被客户端伪造，信任它会绕过登录限流（轮换身份），所以默认不信任。
         // 不用 X-Forwarded-For：它会追加客户端自带的 XFF 头，split(",")[0] 取到的是
         // 可伪造值，攻击者可借此绕过登录限流并定向陷害某 IP。
-        String realIp = req.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) return realIp.trim();
+        if (trustProxy) {
+            String realIp = req.getHeader("X-Real-IP");
+            if (realIp != null && !realIp.isBlank()) return realIp.trim();
+        }
         return req.getRemoteAddr();
     }
 }

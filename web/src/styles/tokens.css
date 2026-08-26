@@ -1,30 +1,10 @@
-/* 设计令牌 + Element Plus 主题开关样式（共享，避免 App.vue / Login.vue 重复） */
+/* 设计令牌（共享），base.css 已 @import 本文件 */
 :root {
   --bp-mobile: 768px;
-}
 
-/* 开关加高、加宽，文字留呼吸空间（与 header 同款） */
-.theme-switch {
-  min-width: 64px;
-}
-.theme-switch .el-switch__core {
-  height: 26px;
-  border-radius: 13px;
-}
-.theme-switch .el-switch__core .el-switch__inner {
-  padding: 0 12px 0 26px;
-}
-.theme-switch.is-checked .el-switch__core .el-switch__inner {
-  padding: 0 26px 0 12px;
-}
-.theme-switch .el-switch__core .el-switch__action {
-  width: 20px;
-  height: 20px;
-}
-.theme-switch.is-checked .el-switch__core .el-switch__action {
-  left: calc(100% - 21px);
-}
-/* 开关 inline-prompt 文字默认硬编码白（.el-switch__inner-wrapper），亮色下跟随主题文字色 */
-html:not(.dark) .theme-switch .el-switch__inner-wrapper {
-  color: var(--el-text-color-regular);
+  /* 品牌渐变与阴影 */
+  --brand-gradient: linear-gradient(135deg, #6c8cff 0%, #4f6bf5 100%);
+  --radius-card: 12px;
+  --shadow-card: 0 6px 24px rgba(30, 60, 120, 0.08);
+  --shadow-card-hover: 0 10px 32px rgba(30, 60, 120, 0.14);
 }

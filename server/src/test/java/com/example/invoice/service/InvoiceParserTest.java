@@ -89,6 +89,24 @@ class InvoiceParserTest {
     }
 
     @Test
+    void parsesFullWidthYenLayout() throws Exception {
+        // pocfile: 全角 ￥ 与半角 ¥ 同为合法金额符号（YEN/DRAWER_YEN 均已放宽）。
+        // 按 PDFBox 实际布局构造：标签聚顶部、值按文档序流底部；开票人不邻标签，
+        // 走 ¥ 后 CJK 令牌的兜底路径 —— 锁定全角分支防重构回归。
+        ParsedInvoice p = parser.parseText("""
+            发票号码：26322000004144614676
+            开票日期：2026年5月26日 购买方 销售方 项目名称 开票人：
+            测试买家公司 测试卖家公司 *餐饮服务*餐饮服务
+            26322000004144614676 2026年5月26日 测试买家公司 测试卖家公司
+            ￥189.62 ￥11.38 ￥201.00 王桃桃
+            """);
+        assertEquals(new BigDecimal("189.62"), p.totalAmount());
+        assertEquals(new BigDecimal("11.38"), p.taxAmount());
+        assertEquals(new BigDecimal("201.00"), p.totalWithTax());
+        assertEquals("王桃桃", p.drawer());
+    }
+
+    @Test
     void parsesYenAfterNumberInvoice() throws Exception {
         // pocfile: the Shenzhou invoice puts ¥ AFTER the figure (1353.10¥) instead of
         // before it, and 开票人： stays adjacent to its value (岳云鹏).

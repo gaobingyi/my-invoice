@@ -72,3 +72,36 @@ export async function fetchFile(id, disposition = 'inline') {
   })
   return { url: URL.createObjectURL(data), blob: data }
 }
+
+/** 从 axios 错误里取可读消息。错误响应体可能是 Blob（如代理/网关错误页、401 弹的 blob），
+ * 直接拼接会渲染成 "[object Blob]"；这里读文本并优先取 JSON {message}。
+ * 网关错误（502/413 等）常回整页 HTML，原样塞进 toast 是不可读的多行噪音 —— 非 JSON
+ * 文本一律走 fallback，JSON/纯文本消息也截断到上限。 */
+const MAX_MSG_LEN = 200
+
+function cap(msg, fallback) {
+  if (!msg) return fallback
+  const s = String(msg).trim()
+  return s ? s.slice(0, MAX_MSG_LEN) : fallback
+}
+
+export async function errorMessage(e, fallback = '请求失败') {
+  const data = e?.response?.data
+  if (data == null) return cap(e?.message, fallback)
+  if (typeof data === 'string') return cap(data, fallback)
+  if (data instanceof Blob) {
+    try {
+      const text = (await data.text()).trim()
+      if (!text) return fallback
+      try {
+        return cap(JSON.parse(text).message, fallback)
+      } catch {
+        // HTML 错误页（<!DOCTYPE…、<html>）或任何非 JSON 体：不进 toast
+        return text.startsWith('<') ? fallback : cap(text, fallback)
+      }
+    } catch {
+      return fallback
+    }
+  }
+  return cap(data.message, fallback)
+}

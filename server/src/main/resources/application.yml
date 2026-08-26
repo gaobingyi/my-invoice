@@ -23,6 +23,8 @@ app:
     password: ${APP_ADMIN_PASSWORD:admin123}
   auth:
     rate-limit-enabled: true
+    # 仅当后端确实在可信反向代理之后才置 true（nginx 会覆盖客户端 X-Real-IP）
+    trust-proxy: ${APP_TRUST_PROXY:false}
   llm:
     base-url: https://opencode.ai/zen/v1
     model: big-pickle
@@ -40,3 +42,7 @@ logging:
 
 server:
   port: 8080
+  tomcat:
+    # 413 时吞掉剩余请求体再写响应（默认 2MB 上限会中途 RST 连接），否则经 nginx 反代时
+    # 浏览器收到 502 而非 GlobalExceptionHandler 的「文件超过 10MB 限制」提示
+    max-swallow-size: -1

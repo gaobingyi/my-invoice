@@ -1,0 +1,76 @@
+/* 全局基础样式 + Element Plus 主题定制（亮/暗共用），在 EP 样式之后加载以覆盖 */
+@import './tokens.css';
+
+/* ---- 主色：靛蓝，现代化后台管理系统的通用选择 ---- */
+:root {
+  --el-color-primary: #4f6bf5;
+  --el-color-primary-light-3: #7d91f8;
+  --el-color-primary-light-5: #a7b5fa;
+  --el-color-primary-light-7: #d1d8fc;
+  --el-color-primary-light-8: #e6eafd;
+  --el-color-primary-light-9: #f2f4fe;
+  --el-color-primary-dark-2: #3f56c4;
+}
+
+/* 暗色下浅色阶收敛为蓝调深灰，避免刺眼的浅紫 */
+html.dark {
+  --el-color-primary: #6c82ff;
+  --el-color-primary-light-3: #5d74f8;
+  --el-color-primary-light-5: #3f56c4;
+  --el-color-primary-light-7: #2c3a86;
+  --el-color-primary-light-8: #242e63;
+  --el-color-primary-light-9: #1a2144;
+  --el-color-primary-dark-2: #8fa2ff;
+}
+
+/* ---- 全局滚动条（保持细、跟主题） ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--el-border-color-darker);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--el-text-color-secondary);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- 输入聚焦光晕：把 EP 的 1px 边框升级为 1px + 3px 柔和光晕 ---- */
+.el-input__wrapper {
+  transition: box-shadow var(--el-transition-duration-fast) ease;
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset,
+    0 0 0 3px var(--el-color-primary-light-8);
+}
+
+/* ---- 按钮统一过渡 ---- */
+.el-button {
+  transition: all 0.2s ease;
+}
+
+/* ---- 卡片统一圆角与阴影 ---- */
+.el-card {
+  border-radius: var(--radius-card);
+}
+
+/* ---- 主题开关（App.vue / Login.vue 共享）：加高加宽，文字留呼吸空间 ---- */
+/* ---- 页面级通用排版：标题 + 小圆点强调 ---- */
+.title-dot {
+  display: inline-block;
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--brand-gradient);
+  margin-right: 10px;
+  vertical-align: -2px;
+}
+.page-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}

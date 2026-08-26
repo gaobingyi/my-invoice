@@ -6,11 +6,12 @@
     <link rel="icon" type="image/svg+xml" href="/invoice-icon.svg" />
     <title>发票管理系统</title>
     <style>
-      html { background: #f2f3f5; }
+      /* 仅兜底 Vue 挂载前的首屏闪烁；.main 背景由 App.vue 统一为 var(--el-bg-color)，
+         这里不再写 .main —— 旧规则特异性更高，暗色下会盖出 #0a0a0a / #141414 双色断层 */
+      html { background: #f2f4f8; }
       html.dark { background: #0a0a0a; }
       html.dark body { background: #0a0a0a; }
-      html.dark .main { background: #0a0a0a; }
-   </style>
+    </style>
     <script>try{if(localStorage.theme==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
 </head>
   <body>

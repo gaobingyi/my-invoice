@@ -1,18 +1,19 @@
 <template>
   <div class="login-page">
-    <el-switch
-      class="theme-switch"
-      v-model="isDark"
-      inline-prompt
-      active-text="暗色"
-      inactive-text="亮色"
-      @change="applyTheme"
-    />
+    <div class="login-bg" aria-hidden="true">
+      <span class="orb orb-1"></span>
+      <span class="orb orb-2"></span>
+      <span class="orb orb-3"></span>
+    </div>
+    <div class="login-theme-toggle">
+      <ThemeToggle />
+    </div>
     <div class="login-card">
       <div class="login-title">
         <img src="/invoice-icon.svg" class="login-logo" alt="logo" />
         <span>发票管理系统</span>
       </div>
+      <p class="login-sub">上传 PDF 发票 · 自动解析 · 统一管理</p>
       <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="submit">
         <el-form-item prop="username">
           <el-input v-model="form.username" placeholder="用户名" size="large" :prefix-icon="User" />
@@ -29,20 +30,21 @@
           />
         </el-form-item>
         <el-button class="login-btn" type="primary" size="large" :loading="loading" @click="submit">
-          登录
+          登 录
         </el-button>
       </el-form>
     </div>
+    <p class="login-footer">© 2026 发票管理系统</p>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { isDark, applyTheme } from '../utils/theme'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { login, setToken, setUsername } from '../api/invoice'
+import ThemeToggle from '../components/ThemeToggle.vue'
 
 const router = useRouter()
 const formRef = ref(null)
@@ -78,40 +80,106 @@ async function submit() {
   position: relative;
   height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--el-bg-color-page);
+  gap: 20px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #eef2ff 0%, #f4f7ff 50%, #eaf0ff 100%);
 }
-/* 右上角主题切换，与主界面 header 同款样式 */
-.login-page .theme-switch {
+html.dark .login-page {
+  background: linear-gradient(135deg, #0d1230 0%, #0a0f2a 50%, #101a3e 100%);
+}
+
+/* 漂浮光斑，营造现代清爽氛围 */
+.login-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: 0.5;
+}
+.orb-1 {
+  width: 420px;
+  height: 420px;
+  background: #6c8cff;
+  top: -120px;
+  left: -80px;
+  animation: float-orb 14s ease-in-out infinite;
+}
+.orb-2 {
+  width: 360px;
+  height: 360px;
+  background: #9aa8ff;
+  bottom: -100px;
+  right: -60px;
+  animation: float-orb 18s ease-in-out infinite reverse;
+}
+.orb-3 {
+  width: 260px;
+  height: 260px;
+  background: #4f6bf5;
+  top: 42%;
+  left: 58%;
+  opacity: 0.32;
+  animation: float-orb 22s ease-in-out infinite;
+}
+@keyframes float-orb {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(24px, -30px); }
+}
+
+/* 右上角主题切换，与主界面同款样式 */
+.login-theme-toggle {
   position: absolute;
   top: 24px;
   right: 24px;
+  z-index: 1;
 }
 .login-card {
-  width: 360px;
-  padding: 40px 32px 32px;
-  border-radius: 8px;
+  position: relative;
+  width: 400px;
+  max-width: calc(100vw - 40px);
+  padding: 36px 36px 30px;
+  border-radius: 16px;
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
-  box-shadow: var(--el-box-shadow-light);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(12px);
 }
 .login-title {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  font-size: 20px;
+  font-size: 21px;
   font-weight: 600;
   color: var(--el-text-color-primary);
-  margin-bottom: 28px;
 }
 .login-logo {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
+}
+.login-sub {
+  margin: 10px 0 26px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 .login-btn {
   width: 100%;
   margin-top: 4px;
+  height: 44px;
+  font-size: 15px;
+  letter-spacing: 6px;
+}
+.login-footer {
+  position: relative;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
 }
 </style>

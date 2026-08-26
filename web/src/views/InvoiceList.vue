@@ -1,5 +1,20 @@
 <template>
   <el-card shadow="never">
+    <div class="list-toolbar">
+      <div class="list-title">
+        <span class="title-dot"></span>
+        <span class="page-title">发票列表</span>
+        <el-tag size="small" type="info" round effect="plain">共 {{ total }} 张</el-tag>
+        <el-button
+          class="list-refresh"
+          :icon="Refresh"
+          circle
+          :loading="loading"
+          title="刷新"
+          @click="load"
+        />
+      </div>
+    </div>
     <el-table :data="rows" v-loading="loading" stripe empty-text="暂无发票，上传 PDF 后在这里查看">
       <el-table-column prop="invoiceNumber" label="发票号码" width="220" />
       <el-table-column prop="invoiceDate" label="开票日期" width="120" />
@@ -14,7 +29,7 @@
           {{ formatTime(row.createdAt) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160">
+      <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="preview(row)">预览</el-button>
           <el-button link @click="download(row)">下载</el-button>
@@ -41,7 +56,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listInvoices, deleteInvoice, fetchFile } from '../api/invoice'
+import { Refresh } from '@element-plus/icons-vue'
+import { listInvoices, deleteInvoice, fetchFile, errorMessage } from '../api/invoice'
 
 const rows = ref([])
 const total = ref(0)
@@ -128,7 +144,7 @@ async function confirmDelete(row) {
     if (rows.value.length === 1 && currentPage.value > 1) currentPage.value--
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data || '删除失败')
+    ElMessage.error(await errorMessage(e, '删除失败'))
   }
 }
 
@@ -140,11 +156,38 @@ onMounted(load)
   width: 100%;
 }
 :deep(.el-card__body) {
-  padding: 3px;
+  padding: 16px;
 }
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.list-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.list-refresh { margin-left: 4px; }
 .pager {
   margin-top: 16px;
   justify-content: flex-end;
+}
+:deep(.el-table) {
+  --el-table-header-bg-color: var(--el-fill-color-lighter);
+  border-radius: 8px;
+}
+:deep(.el-table th.el-table__cell) {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+:deep(.el-table .cell) {
+  padding: 0 12px;
+}
+/* 操作列按钮间距 */
+:deep(.el-table .el-button + .el-button) {
+  margin-left: 4px;
 }
 /* 窄屏：分页居中；768 与其他处对齐见 src/styles/tokens.css */
 @media (max-width: 768px) {
@@ -156,5 +199,6 @@ onMounted(load)
   width: 100%;
   height: 70vh;
   border: none;
+  border-radius: 8px;
 }
 </style>

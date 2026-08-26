@@ -1,31 +1,52 @@
 <template>
   <el-card shadow="never">
-    <div class="toolbar">
+    <div class="upload-head">
+      <div class="upload-title">
+        <span class="title-dot"></span>
+        <span class="page-title">发票上传</span>
+        <span class="upload-hint">支持 PDF 格式 · 单次最多 20 张 · 单张 ≤ 10MB</span>
+      </div>
+    </div>
+    <div class="upload-body">
       <el-upload
         ref="uploadRef"
         drag
         :auto-upload="false"
         multiple
         :limit="20"
+        :show-file-list="false"
         :on-change="onFileChange"
         :on-remove="onFileRemove"
         :on-exceed="onExceed"
         accept="application/pdf"
       >
         <div class="upload-box">
-          <el-icon><upload-filled /></el-icon>
-          <div>拖拽 PDF 到此处，或点击选择（可多选）</div>
+          <div class="upload-icon">
+            <el-icon><upload-filled /></el-icon>
+          </div>
+          <div class="upload-main">拖拽 PDF 到此处，或点击选择文件</div>
+          <div class="upload-sub">支持批量选择，选择后可预览再上传</div>
         </div>
       </el-upload>
-      <el-button
-        class="upload-btn"
-        type="primary"
-        :loading="uploading"
-        :disabled="!files.length"
-        @click="doUpload"
-      >
-        上传发票（{{ files.length }}）
-      </el-button>
+      <div class="upload-files" v-if="files.length">
+        <div class="file-row" v-for="f in files" :key="f.uid">
+          <el-icon class="file-icon"><document /></el-icon>
+          <span class="file-name">{{ f.name }}</span>
+          <el-icon class="file-remove" @click="removeFile(f)"><close /></el-icon>
+        </div>
+      </div>
+      <div class="upload-actions">
+        <el-button
+          class="upload-btn"
+          type="primary"
+          size="large"
+          :loading="uploading"
+          :disabled="!files.length"
+          @click="doUpload"
+        >
+          上传发票（{{ files.length }}）
+        </el-button>
+      </div>
     </div>
   </el-card>
 </template>
@@ -34,8 +55,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
-import { uploadInvoice } from '../api/invoice'
+import { UploadFilled, Document, Close } from '@element-plus/icons-vue'
+import { uploadInvoice, errorMessage } from '../api/invoice'
 
 const uploading = ref(false)
 const files = ref([])
@@ -51,6 +72,11 @@ function onFileRemove(f) {
   files.value = files.value.filter(x => x.uid !== f.uid)
 }
 
+// 自定义列表的删除：走 el-upload 的 handleRemove，让内部 list 同步、并触发 on-remove
+function removeFile(f) {
+  uploadRef.value?.handleRemove(f)
+}
+
 function onExceed() {
   ElMessage.warning('一次最多选 20 张（后端单请求限制 10MB，20 张超出请分批）')
 }
@@ -60,25 +86,28 @@ const router = useRouter()
 async function doUpload() {
   if (!files.value.length) return
   uploading.value = true
-  let ok = 0, fail = 0
+  const failed = []
+  let ok = 0
   try {
     for (const f of files.value) {
       try {
         await uploadInvoice(f.raw)
         ok++
       } catch (e) {
-        fail++
-        ElMessage.error(`${f.name} 上传失败: ${e.response?.data || ''}`)
+        failed.push(f)
+        ElMessage.error(`${f.name} 上传失败: ${await errorMessage(e)}`)
       }
     }
-    if (ok) {
-      ElMessage.success(`成功 ${ok} 张${fail ? `，失败 ${fail} 张` : ''}`)
-      if (!fail) router.push('/list')
-    } else if (fail) {
-      ElMessage.error(`上传失败 ${fail} 张，请检查 PDF 是否损坏或已存在`)
+    // 只清掉成功项，失败的留在列表里可查看/重试（走 handleRemove 同步 el-upload 内部列表）
+    for (const f of files.value.filter(x => !failed.includes(x))) {
+      uploadRef.value?.handleRemove(f)
     }
-    files.value = []
-    uploadRef.value?.clearFiles()
+    if (ok) {
+      ElMessage.success(`成功 ${ok} 张${failed.length ? `，失败 ${failed.length} 张` : ''}`)
+      if (!failed.length) router.push('/list')
+    } else {
+      ElMessage.error(`上传失败 ${failed.length} 张，请检查 PDF 是否损坏或已存在`)
+    }
   } finally {
     uploading.value = false
   }
@@ -96,62 +125,130 @@ async function doUpload() {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 3px;
+  padding: 16px;
+  gap: 16px;
 }
-.toolbar {
+.upload-head {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.upload-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.upload-hint {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.upload-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  /* 撑满 main 高度，配合 align-items:center 让上传框垂直居中 */
-  flex: 1;
-}
-.toolbar .el-upload {
-  flex: 1;
-  max-width: 560px;
-  min-width: 0;
-  /* 不用 flex：dragger 的 aspect-ratio 需要作为普通 block 子项才能定高；
-     align-self:center 避免交叉轴 stretch 破坏 dragger 正方形 */
-  display: block;
-  align-self: center;
-}
-.toolbar :deep(.el-upload-dragger) {
+  justify-content: center;
+  max-width: 720px;
   width: 100%;
-  padding: 8px;
-  /* 正方形：以长边为准。width 受 .toolbar .el-upload max-width:560px 约束，
-     aspect-ratio:1 让 高=宽，成为正方形的长边基准 */
-  aspect-ratio: 1;
-  min-height: 220px;
+  margin: 0 auto;
 }
-.toolbar .upload-btn {
-  align-self: center;
+/* 拖拽区：虚线边框 + 悬停/拖入高亮 + 图标动效 */
+.upload-body :deep(.el-upload) {
+  display: block;
+  width: 100%;
+}
+.upload-body :deep(.el-upload-dragger) {
+  padding: 32px;
+  border-radius: 12px;
+  border: 2px dashed var(--el-border-color);
+  background: var(--el-fill-color-lighter);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.upload-body :deep(.el-upload-dragger:hover) {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+.upload-body :deep(.el-upload-dragger.is-dragover) {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-8);
+}
+.upload-body :deep(.el-upload-dragger:hover .el-icon) {
+  transform: scale(1.1);
 }
 .upload-box {
-  /* 撑满 dragger，图标+文字水平垂直居中 */
-  width: 100%;
-  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 8px;
+  padding: 12px;
+}
+.upload-icon {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  padding: 8px 24px;
-  font-size: 14px;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  color: #fff;
+  margin-bottom: 4px;
+}
+.upload-icon .el-icon {
+  font-size: 30px;
+}
+.upload-body :deep(.el-icon) {
+  transition: transform 0.2s ease;
+}
+.upload-main {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+.upload-sub {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.upload-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow: auto;
+}
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+  font-size: 13px;
+}
+.file-icon {
+  color: var(--el-color-primary);
+}
+.file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--el-text-color-regular);
 }
-.upload-box .el-icon {
-  font-size: 40px;
-  color: var(--el-text-color-placeholder);
-  margin-bottom: 8px;
+.file-remove {
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  transition: color 0.2s ease;
 }
-/* 窄屏：工具栏换行；768 与其他处对齐见 src/styles/tokens.css */
-@media (max-width: 768px) {
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-  .toolbar .upload-btn {
-    width: 100%;
-  }
+.file-remove:hover {
+  color: var(--el-color-danger);
+}
+.upload-actions {
+  display: flex;
+  justify-content: center;
+}
+.upload-actions .upload-btn {
+  min-width: 200px;
 }
 </style>

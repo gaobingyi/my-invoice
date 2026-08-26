@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,7 +50,8 @@ public class InvoiceParser {
     //  - Shenzhou: the label and value stay adjacent (开票人：岳云鹏).
     // Try the adjacent label first, then the ¥-adjacent fallback.
     private static final Pattern DRAWER_LABEL = Pattern.compile("开票人[：:]\\s*([\\u4e00-\\u9fa5（）()·]{2,})");
-    private static final Pattern DRAWER_YEN = Pattern.compile("¥[\\d,]+\\.\\d{2}\\s*([\\u4e00-\\u9fa5（）()·]{2,})");
+    // pocfile: 与 YEN 一致，金额符号同时接受半角 ¥ 与全角 ￥。
+    private static final Pattern DRAWER_YEN = Pattern.compile("[¥￥][\\d,]+\\.\\d{2}\\s*([\\u4e00-\\u9fa5（）()·]{2,})");
 
     public ParsedInvoice parse(Path pdf) throws IOException {
         String text = extractText(pdf);
@@ -72,8 +74,16 @@ public class InvoiceParser {
         String number = first(NUMBER, text);
         LocalDate date = null;
         Matcher dm = DATE.matcher(text);
-        if (dm.find()) date = LocalDate.of(
-                Integer.parseInt(dm.group(1)), Integer.parseInt(dm.group(2)), Integer.parseInt(dm.group(3)));
+        if (dm.find()) {
+            try {
+                // pocfile: 非法日期（如 2026年2月30日）会抛 DateTimeException → 500；
+                // 置 null 留给 LLM 兜底，与 InvoiceLlmExtractor 对坏数据的处理一致。
+                date = LocalDate.of(
+                        Integer.parseInt(dm.group(1)), Integer.parseInt(dm.group(2)), Integer.parseInt(dm.group(3)));
+            } catch (DateTimeException e) {
+                date = null;
+            }
+        }
 
         List<String> names = all(NAME, text);          // [buyer, seller] in document order
         List<String> taxIds = all(TAX_ID, text);        // [buyer, seller] in document order

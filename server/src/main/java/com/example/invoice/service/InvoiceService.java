@@ -24,8 +24,17 @@ public class InvoiceService {
 
     private static final SecureRandom RNG = new SecureRandom();
 
+    // pocfile: 字段长度上限，与 ddl/schema.sql 的 VARCHAR 列宽对齐。
+    // LLM 兜底可能返回超长字符串，入库前截断，避免 DataIntegrityViolation 被误判为重复发票。
+    private static final int MAX_NAME = 128;
+    private static final int MAX_TAX_ID = 20;
+    private static final int MAX_NUMBER = 20;
+    private static final int MAX_CATEGORY = 64;
+    private static final int MAX_DRAWER = 64;
+    private static final int MAX_LIST_SIZE = 100;
+
     private final InvoiceRepository repository;
-    private final com.example.invoice.service.InvoiceParser parser;
+    private final InvoiceParser parser;
     private final Path uploadDir;
 
     public InvoiceService(InvoiceRepository repository, com.example.invoice.service.InvoiceParser parser,
@@ -47,69 +56,86 @@ public class InvoiceService {
 
         // pocfile: store to a temp name first because seller/invoice-number are only known
         // after parsing; rename to <seller>_<number>.<ext> afterwards.
+        // finally 统一清理 tmp：copy/parse/move 任一失败都不泄漏临时文件；成功后 tmp 已被
+        // move 走，deleteIfExists 是空操作。
         Path tmp = uploadDir.resolve(UUID.randomUUID() + ".pdf");
-        Files.copy(file.getInputStream(), tmp, StandardCopyOption.REPLACE_EXISTING);
-        ParsedInvoice p;
         try {
-            p = parser.parse(tmp);
-        } catch (IOException | RuntimeException e) {
-            Files.deleteIfExists(tmp);          // pocfile: a parse failure must not leak the temp file
-            throw e;
-        }
-
-        // pocfile: duplicate invoice number should be rejected. If parsing produced no
-        // number we keep the file but store a sentinel so the NOT NULL/UNIQUE columns hold.
-        // The sentinel must fit the VARCHAR(20) column, hence the truncated UUID suffix.
-        String number = p.invoiceNumber();
-        // pocfile: 12 hex chars = 48 bits CSPRNG, plenty for sentinel uniqueness.
-        // UUID.randomUUID().toString() 全 32 字符再 substring 是浪费：每次分配 + 格式化。
-        String sentinel = number != null ? null
-                : "UNKNOWN-" + String.format("%012x", RNG.nextLong() & 0xFFFFFFFFFFFFL);
-
-        String filename = buildFilename(p, name, sentinel);
-        Path dest = uploadDir.resolve(filename);
-        if (!dest.equals(tmp)) {
+            Files.copy(file.getInputStream(), tmp, StandardCopyOption.REPLACE_EXISTING);
+            ParsedInvoice p;
             try {
-                // pocfile: no REPLACE_EXISTING — a duplicate upload must 409, not clobber
-                // the previously stored PDF the surviving row still points at.
-                Files.move(tmp, dest);
-            } catch (FileAlreadyExistsException e) {
-                Files.deleteIfExists(tmp);
-                throw new DuplicateInvoiceException(number);
+                p = parser.parse(tmp);
+            } catch (IOException e) {
+                // pocfile: 文件名是 .pdf 但内容不是（或损坏）时 PDFBox 抛 IOException，
+                // 归类为用户输入问题 → 400，而非服务器错误 500。
+                throw new IllegalArgumentException("无法解析 PDF 内容", e);
             }
-        }
 
-        Invoice inv = new Invoice();
-        inv.setInvoiceNumber(number != null ? number : sentinel);
-        inv.setInvoiceDate(p.invoiceDate());
-        inv.setBuyerName(p.buyerName());
-        inv.setBuyerTaxId(p.buyerTaxId());
-        inv.setSellerName(p.sellerName());
-        inv.setSellerTaxId(p.sellerTaxId());
-        inv.setCategory(p.category());
-        inv.setTotalAmount(p.totalAmount());
-        inv.setTaxAmount(p.taxAmount());
-        inv.setTotalWithTax(p.totalWithTax());
-        inv.setDrawer(p.drawer());
-        inv.setFilePath(uploadDir.relativize(dest).toString());
+            // pocfile: duplicate invoice number should be rejected. If parsing produced no
+            // number we keep the file but store a sentinel so the NOT NULL/UNIQUE columns hold.
+            // The sentinel must fit the VARCHAR(20) column, hence the truncated UUID suffix.
+            // 正则路径的号码恒为 20 位数字；LLM 兜底可能幻觉出超长值 —— 截断会让两张共享
+            // 20 字符前缀的不同票在 uk_invoice_number 上相撞（合法上传被误判 409），且入库
+            // 值与文件名同 PDF 印刷值不一致。所以超长号码视为未解析出，走 UNKNOWN 哨兵。
+            String parsedNumber = p.invoiceNumber();
+            String number = parsedNumber != null && parsedNumber.length() <= MAX_NUMBER ? parsedNumber : null;
+            // pocfile: 12 hex chars = 48 bits CSPRNG, plenty for sentinel uniqueness.
+            // UUID.randomUUID().toString() 全 32 字符再 substring 是浪费：每次分配 + 格式化。
+            String sentinel = number != null ? null
+                    : "UNKNOWN-" + String.format("%012x", RNG.nextLong() & 0xFFFFFFFFFFFFL);
 
-        try {
-            return repository.save(inv);
-        } catch (DataIntegrityViolationException e) {
-            Files.deleteIfExists(dest);
-            // pocfile: the file we just moved is a fresh copy (line 69) and the surviving row
-            // points at it; delete it and report the duplicate. The caller may still decide to
-            // overwrite with a new copy — but never let us leave the row pointing at nothing.
-            if (p.invoiceNumber() != null) {
-                throw new DuplicateInvoiceException(p.invoiceNumber());
+            String filename = buildFilename(p, name, number != null ? number : sentinel);
+            Path dest = uploadDir.resolve(filename);
+            if (!dest.equals(tmp)) {
+                try {
+                    // pocfile: no REPLACE_EXISTING — a duplicate upload must 409, not clobber
+                    // the previously stored PDF the surviving row still points at.
+                    Files.move(tmp, dest);
+                } catch (FileAlreadyExistsException e) {
+                    throw new DuplicateInvoiceException(number);
+                }
             }
-            // pocfile: two concurrent unparseable uploads collide on the same dest file;
-            // both are UNKNOWN-numbered so keep the first file and 409 the second.
-            throw new DuplicateInvoiceException("UNKNOWN");
+
+            // pocfile: 入库前截断字符串字段到列宽（LLM 幻觉超长值不再触发 DB 约束异常）。
+            // 发票号码不在此列：上面已改为非法即哨兵，绝不截断唯一键。
+            Invoice inv = new Invoice();
+            inv.setInvoiceNumber(number != null ? number : sentinel);
+            inv.setInvoiceDate(p.invoiceDate());
+            inv.setBuyerName(truncate(p.buyerName(), MAX_NAME));
+            inv.setBuyerTaxId(truncate(p.buyerTaxId(), MAX_TAX_ID));
+            inv.setSellerName(truncate(p.sellerName(), MAX_NAME));
+            inv.setSellerTaxId(truncate(p.sellerTaxId(), MAX_TAX_ID));
+            inv.setCategory(truncate(p.category(), MAX_CATEGORY));
+            inv.setTotalAmount(p.totalAmount());
+            inv.setTaxAmount(p.taxAmount());
+            inv.setTotalWithTax(p.totalWithTax());
+            inv.setDrawer(truncate(p.drawer(), MAX_DRAWER));
+            inv.setFilePath(uploadDir.relativize(dest).toString());
+
+            try {
+                return repository.save(inv);
+            } catch (DataIntegrityViolationException e) {
+                // pocfile: 只有唯一键冲突才删除刚 move 过来的副本——此时存活行指向同一文件名，
+                // 新副本与旧文件内容相同（同一张票重复上传），删掉新副本不留孤儿。其他约束失败
+                // （如 NOT NULL）不是重复上传：dest 上是我们唯一的文件副本，删了它 DB 行虽未建成，
+                // 但若是修复场景（旧行文件已丢）会毁掉唯一恢复机会 —— 如实抛 500 并保留文件，
+                // 用户重传即可自愈。
+                if (isDuplicateKey(e)) {
+                    Files.deleteIfExists(dest);
+                    // pocfile: two concurrent unparseable uploads collide on the same dest file;
+                    // both are UNKNOWN-numbered so keep the first file and 409 the second.
+                    throw new DuplicateInvoiceException(number != null ? number : "UNKNOWN");
+                }
+                throw e;
+            }
+        } finally {
+            Files.deleteIfExists(tmp);
         }
     }
 
     public Page<Invoice> list(int page, int size) {
+        // pocfile: 防 size 无上限把全表一次拉进内存；page/size 越界也钳制到合法范围。
+        if (page < 0) page = 0;
+        size = Math.min(Math.max(size, 1), MAX_LIST_SIZE);
         return repository.findAll(PageRequest.of(page, size,
                 Sort.by(Sort.Direction.DESC, "createdAt")));
     }
@@ -117,17 +143,43 @@ public class InvoiceService {
     public Path resolveFile(Long id) {
         Invoice inv = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("发票不存在: " + id));
-        return uploadDir.resolve(inv.getFilePath()).normalize();
+        return safePath(inv.getFilePath());
     }
 
-    private String buildFilename(ParsedInvoice p, String originalName, String sentinel) {
+    private String buildFilename(ParsedInvoice p, String originalName, String resolvedNumber) {
         String seller = p.sellerName() == null ? "UNKNOWN" : p.sellerName();
-        String number = p.invoiceNumber() != null ? p.invoiceNumber() : sentinel;
-        // pocfile: strip path separators and OS-reserved characters so the filename can
-        // never escape uploadDir or break the filesystem.
-        String safe = (seller + "_" + number).replaceAll("[\\\\/:*?\"<>|\\r\\n\\t ]+", "_");
+        // pocfile: resolvedNumber 已是入库值（合法号码或 UNKNOWN 哨兵），文件名与 DB 永远一致。
+        // strip path separators and OS-reserved characters so the filename can never escape
+        // uploadDir or break the filesystem.
+        String safe = (seller + "_" + resolvedNumber).replaceAll("[\\\\/:*?\"<>|\\r\\n\\t ]+", "_");
         String ext = originalName.contains(".") ? originalName.substring(originalName.lastIndexOf('.')) : ".pdf";
         return safe + ext;
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null || s.length() <= max) return s;
+        return s.substring(0, max);
+    }
+
+    private static boolean isDuplicateKey(DataIntegrityViolationException e) {
+        // MySQL 唯一键冲突的 vendor code 恒为 1062（SQLState 23000 是 NOT NULL 等约束共享的
+        // 大类，不能单用作判据；message 文本 "Duplicate entry" 在非 en locale 下会本地化）。
+        // 遍历 cause 链取根 SQLException 的错误码判定，与驱动/服务端语言无关。
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.sql.SQLException se && se.getErrorCode() == 1062) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 校验 DB 里的相对路径不会逃出 uploadDir（防御直接改库的越权路径）。 */
+    private Path safePath(String relative) {
+        Path p = uploadDir.resolve(relative).normalize();
+        if (!p.startsWith(uploadDir.normalize())) {
+            throw new IllegalArgumentException("非法文件路径");
+        }
+        return p;
     }
 
     public void delete(Long id) throws IOException {
@@ -135,7 +187,7 @@ public class InvoiceService {
                 .orElseThrow(() -> new IllegalArgumentException("发票不存在: " + id));
         // pocfile: delete the file first — if removing the DB row then fails the user can
         // retry; deleting the row first orphanes the PDF forever when the file delete fails.
-        Files.deleteIfExists(uploadDir.resolve(inv.getFilePath()).normalize());
+        Files.deleteIfExists(safePath(inv.getFilePath()));
         repository.delete(inv);
     }
 }
