@@ -37,7 +37,8 @@ app:
     model: big-pickle
     enabled: true
     timeout-seconds: 60
-    api-key: ${LLM_API_KEY:}
+    # dev 默认 key 已内嵌（个人 dev key，无安全价值）；部署/不同 key 仍可设 LLM_API_KEY env 覆盖
+    api-key: ${LLM_API_KEY:sk-J7LGINZ7IRCh43z1ahN1j3OxN7n9zkoEeTX1LtMj4nD6hjt7ErvCiDyYUU09LjNl}
 
 logging:
   file:

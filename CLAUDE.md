@@ -51,8 +51,7 @@ docker compose down -v                  # 停止+清卷
 | `nginx` | `invoice-web`（`web/Dockerfile` 多阶段） | node 构建 dist → nginx 服务，对外 8088，反代 `/api` 到 backend |
 
 **双 `.env` 分离**（值不一致，勿混）：
-- **根 `.env`**：docker compose 变量源（`LLM_API_KEY`、`APP_LLM_*`、必填 `JWT_SECRET`/`APP_ADMIN_PASSWORD`），compose 同目录。SQLite 无 DB 凭据，故 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除。
-- **`server/.env`**：本地 dev 密钥（spring-dotenv 从 `server/` cwd 加载，含 `LLM_API_KEY`）
+- **根 `.env`**：docker compose 变量源（`LLM_API_KEY`、`APP_LLM_*`、必填 `JWT_SECRET`/`APP_ADMIN_PASSWORD`），compose 同目录。SQLite 无 DB 凭据，故 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除。`LLM_API_KEY` 在 `application.yml` 也有 dev default（个人 dev key），本地不起后端可不 source。
 - 容器内 DB 用 `/app/data/invoice.db`（命名卷 `backend-db`）；本地 DB 用 `./data/invoice.db`（相对 `server/` cwd）；LLM 用根 `.env` 的 `APP_LLM_BASE_URL` 覆盖 `application.yml` 的 base-url。
 
 ## schema 双写

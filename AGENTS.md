@@ -20,8 +20,7 @@ docker compose up -d --build                   # 两服务全镜像化（backend
 ## 环境与 .env（双文件，勿混）
 
 - **根 `.env`**（gitignored，模板 `.env.example`）：docker compose 变量源。`JWT_SECRET`、`APP_ADMIN_PASSWORD` 均为 `:?` **必填**，缺任一 compose 直接拒绝启动。还含 `LLM_API_KEY`、`APP_LLM_BASE_URL`、`APP_LLM_MODEL`。SQLite 是文件式，无 DB 凭据（旧 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除）。
-- **`server/.env`**：本地 dev 用（spring-dotenv 从 `server/` cwd 加载，含 `LLM_API_KEY`）。
-- SQLite 连接（`./data/invoice.db`，WAL 模式）与 LLM 默认配置在 `server/src/main/resources/application.yml`；容器内由 compose 环境变量覆盖（DB `/app/data/invoice.db`、LLM 走 `APP_LLM_BASE_URL`）。
+- SQLite 连接（`./data/invoice.db`，WAL 模式）与 LLM 默认配置在 `server/src/main/resources/application.yml`；`LLM_API_KEY` 在 yml 也有 dev default（个人 dev key），本地不起后端可不 source。容器内由 compose 环境变量覆盖（DB `/app/data/invoice.db`、LLM 走 `APP_LLM_BASE_URL`）。
 
 ## 解析架构（核心）
 
