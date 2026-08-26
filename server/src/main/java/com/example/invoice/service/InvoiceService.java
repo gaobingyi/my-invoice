@@ -242,12 +242,13 @@ public class InvoiceService {
     public void delete(Long id) throws IOException {
         Invoice inv = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("发票不存在: " + id));
+        // 删除前校验：发票已被批次引用时不可删除（需先删除批次或从批次中移除该票）
+        if (exportBatchItemRepository.existsByInvoiceId(id)) {
+            throw new IllegalArgumentException("该发票已被导出批次使用，不可删除。请先删除相关批次或从批次中移除该发票");
+        }
         // pocfile: delete the file first — if removing the DB row then fails the user can
         // retry; deleting the row first orphanes the PDF forever when the file delete fails.
         Files.deleteIfExists(safePath(inv.getFilePath()));
         repository.delete(inv);
-        // 导出批次关联项一并清理（无外键，需手动）。批次快照字段不改 —— 历史记录仍显示
-        // 创建时点张数/合计，ZIP 重新生成时该票进「缺失清单.txt」。
-        exportBatchItemRepository.deleteByInvoiceId(id);
     }
 }

@@ -16,4 +16,7 @@ public interface ExportBatchItemRepository extends JpaRepository<ExportBatchItem
 
     /** 该发票是否被指定批次之外的其他批次引用（决定删批次时能否恢复「未使用」）。 */
     boolean existsByInvoiceIdAndBatchIdNot(Long invoiceId, Long batchId);
+
+    /** 发票删除校验：该发票是否被任意批次引用（被引用时不可删除）。 */
+    boolean existsByInvoiceId(Long invoiceId);
 }
