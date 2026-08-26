@@ -7,7 +7,7 @@
 ## 用户已确认决策
 
 - **对外端口 8088**（避开本地 8080/5173）
-- **LLM 兜底默认开启指向宿主机**：`APP_LLM_ENABLED=true`、`LLM_BASE_URL=http://host.docker.internal:20128/v1`，需 `extra_hosts: ["host.docker.internal:host-gateway"]`
+- **LLM 兜底默认开启指向宿主机**：`LLM_ENABLED=true`、`LLM_BASE_URL=http://host.docker.internal:20128/v1`，需 `extra_hosts: ["host.docker.internal:host-gateway"]`
 
 ## 新建文件（5 个）
 
@@ -31,7 +31,7 @@
 
 1. **datasource URL**：yml 硬编码 `127.0.0.1`，容器内致命。compose 用 `SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/...` 覆盖（relaxed binding），本地 dev yml 不动。
 2. **schema 初始化**：`ddl-auto: validate`，schema 必须先存在。挂 `server/ddl/schema.sql` 到 `/docker-entrypoint-initdb.d/`，backend `depends_on: mysql: service_healthy`。
-3. **上传/日志持久化**：命名卷 `backend-data:/app/uploads`、`backend-logs:/app/logs`，compose 设 `APP_UPLOAD_DIR=/app/uploads`、`LOGGING_FILE_NAME=/app/logs/invoice-server.log`。后端以 root 跑，`Files.createDirectories` 自动建目录。
+3. **上传/日志持久化**：命名卷 `backend-data:/app/uploads`、`backend-logs:/app/logs`，compose 设 `UPLOAD_DIR=/app/uploads`、`LOGGING_FILE_NAME=/app/logs/invoice-server.log`。后端以 root 跑，`Files.createDirectories` 自动建目录。
 4. **Nginx 反代**：`location /api/ { proxy_pass http://backend:8080; }`（无尾路径 = 原样透传，backend controller 是 `/api/invoices`）。`client_max_body_size 10m` 对齐 Spring multipart 上限。
 5. **.env 不泄漏**：`server/.env` 含真实 API key，根 `.gitignore` 已排除 `.env`；`.dockerignore` 双保险。
 6. **健康检查**：无 actuator，用 `wget --spider /api/invoices`（Alpine 自带）；mysql 用 `mysqladmin ping`。

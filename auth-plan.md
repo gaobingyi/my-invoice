@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS app_user (
 - `repository/UserRepository.java` — `findByUsername(String)`
 - `dto/LoginRequest.java`（username/password，带 `@NotBlank`）、`dto/LoginResponse.java`（token、username）
 - `service/AuthService.java` — `login()` 用 `PasswordEncoder.matches` 校验 + 签 JWT；`CommandLineRunner` 逻辑放这里：查无 admin 则插入（默认 `admin/admin123`，可被 `ADMIN_USERNAME`/`ADMIN_PASSWORD` 覆盖）
-- `service/JwtTokenService.java` — 签发/解析/校验，secret 与过期时间从 `@Value("${app.jwt.secret}")` 读
+- `service/JwtTokenService.java` — 签发/解析/校验，secret 与过期时间从 `@Value("${jwt.secret}")` 读
 - `config/SecurityConfig.java` — `SecurityFilterChain` bean：
   - `permitAll("/api/auth/**")`，其余 `/api/**` `authenticated`
   - `csrf.disable()`（无状态 JWT）

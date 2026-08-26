@@ -38,7 +38,7 @@ public class InvoiceService {
     private final Path uploadDir;
 
     public InvoiceService(InvoiceRepository repository, com.example.invoice.service.InvoiceParser parser,
-                          @Value("${app.upload-dir:./uploads}") String uploadDir) {
+                          @Value("${upload-dir:./uploads}") String uploadDir) {
         this.repository = repository;
         this.parser = parser;
         this.uploadDir = Paths.get(uploadDir);

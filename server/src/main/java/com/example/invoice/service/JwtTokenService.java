@@ -16,8 +16,8 @@ public class JwtTokenService {
     private final SecretKey key;
     private final long expireMillis;
 
-    public JwtTokenService(@Value("${app.jwt.secret}") String secret,
-                           @Value("${app.jwt.expire-seconds:86400}") long expireSeconds) {
+    public JwtTokenService(@Value("${jwt.secret}") String secret,
+                           @Value("${jwt.expire-seconds:86400}") long expireSeconds) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expireMillis = expireSeconds * 1000;
     }

@@ -19,7 +19,7 @@ public class AuthController {
     private final boolean trustProxy;
 
     public AuthController(AuthService authService,
-                          @Value("${app.auth.trust-proxy:false}") boolean trustProxy) {
+                          @Value("${trust-proxy:false}") boolean trustProxy) {
         this.authService = authService;
         this.trustProxy = trustProxy;
     }
@@ -41,7 +41,7 @@ public class AuthController {
     }
 
     private String clientIp(HttpServletRequest req) {
-        // pocfile: 只有部署在可信反向代理之后（compose 里 nginx 设 app.auth.trust-proxy=true）
+        // pocfile: 只有部署在可信反向代理之后（compose 里 nginx 设 trust-proxy=true）
         // 才信任 X-Real-IP——nginx 会覆盖客户端带来的该头。dev（vite proxy）或直连 8080 时
         // X-Real-IP 可被客户端伪造，信任它会绕过登录限流（轮换身份），所以默认不信任。
         // 不用 X-Forwarded-For：它会追加客户端自带的 XFF 头，split(",")[0] 取到的是

@@ -113,9 +113,9 @@ services:
       # date_class=TEXT：Xerial JDBC 默认按 INTEGER (epoch ms) 存 timestamp，
       # 与读侧 ISO 解析错位导致 ParseException。强制 TEXT 让读写都用 ISO-8601。
       SPRING_DATASOURCE_URL: jdbc:sqlite:/app/data/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
-      APP_UPLOAD_DIR: /app/uploads
+      UPLOAD_DIR: /app/uploads
       LOGGING_FILE_NAME: /app/logs/invoice-server.log
-      APP_LLM_ENABLED: "true"
+      LLM_ENABLED: "true"
       LLM_BASE_URL: ${LLM_BASE_URL:-https://opencode.ai/zen/v1}
       LLM_MODEL: ${LLM_MODEL:-oc/deepseek-v4-flash-free}
       LLM_API_KEY: ${LLM_API_KEY:-}

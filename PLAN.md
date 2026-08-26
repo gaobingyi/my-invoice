@@ -64,7 +64,7 @@ server/src/main/java/com/example/invoice/
 - 价税合计小写： `（小写）¥?(\d+\.\d{2})`
 - 开票人： `开票人：(\S+)`
 
-配置：`application.yml` 读 `spring.datasource.*`（环境变量注入密码）、`app.upload-dir=./uploads` (`@PostMapping` 时 `Files.createDirectories`)。
+配置：`application.yml` 读 `spring.datasource.*`（环境变量注入密码）、`upload-dir=./uploads` (`@PostMapping` 时 `Files.createDirectories`)。
 
 ## 前端结构（`web/`）
 

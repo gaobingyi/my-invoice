@@ -20,7 +20,7 @@ public class LoginRateLimiter {
     private final boolean enabled;
     private final ConcurrentHashMap<String, Deque<Instant>> hits = new ConcurrentHashMap<>();
 
-    public LoginRateLimiter(@Value("${app.auth.rate-limit-enabled:true}") boolean enabled) {
+    public LoginRateLimiter(@Value("${auth.rate-limit-enabled:true}") boolean enabled) {
         this.enabled = enabled;
     }
 
