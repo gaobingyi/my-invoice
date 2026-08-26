@@ -43,7 +43,7 @@
 ```
 /opt/invoice/
 ├── docker-compose.yml
-├── .env                     # 含 TUNNEL_TOKEN、DB_PASSWORD、JWT_SECRET 等
+├── .env                     # 含 TUNNEL_TOKEN、LLM_API_KEY、JWT_SECRET 等（SQLite 无 DB 凭据）
 ├── web/
 │   ├── nginx.conf           # 纯 HTTP，监听 80，不配 SSL
 │   └── Dockerfile
@@ -57,39 +57,16 @@
 name: invoice-manager
 
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: invoice-mysql
-    environment:
-      MYSQL_DATABASE: invoice_db
-      MYSQL_USER: invoice_app
-      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
-      TZ: Asia/Shanghai
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --innodb-buffer-pool-size=64M --performance-schema=OFF
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./server/ddl/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpw}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-
   backend:
     image: invoice-backend:1.0.0
     build:
       context: .
       dockerfile: server/Dockerfile
     container_name: invoice-backend
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/invoice_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-      SPRING_DATASOURCE_USERNAME: invoice_app
-      SPRING_DATSOURCE_PASSWORD: ${DB_PASSWORD:?}
+      # SQLite 文件式 DB，由命名卷 backend-db 持久化。date_class=TEXT 让 Xerial JDBC
+      # 读写 timestamp 都用 ISO-8601（避免 INTEGER epoch ms 写入与 ISO 读解析错位）。
+      SPRING_DATASOURCE_URL: jdbc:sqlite:/app/data/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
       APP_UPLOAD_DIR: /app/uploads
       LOGGING_FILE_NAME: /app/logs/invoice-server.log
       APP_LLM_ENABLED: "true"
@@ -104,6 +81,7 @@ services:
     volumes:
       - backend-data:/app/uploads
       - backend-logs:/app/logs
+      - backend-db:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/auth/ping"]
@@ -139,9 +117,9 @@ services:
     # 无需 ports 暴露，纯出站连接 CF
 
 volumes:
-  mysql-data:
   backend-data:
   backend-logs:
+  backend-db:
 ```
 
 > **方案 B**：不在 compose 里跑 cloudflared，而是在宿主机用 systemd 运行 `cloudflared service install <token>`。两者二选一，配置同理。
@@ -194,8 +172,7 @@ CMD ["nginx", "-g", "daemon off;"]
 ### 2.5 根目录 `.env`（示例）
 
 ```env
-DB_PASSWORD=Invoice123!
-MYSQL_ROOT_PASSWORD=rootpw
+# SQLite 是文件式数据库，无 DB 凭据。
 LLM_API_KEY=sk-xxx
 JWT_SECRET=change-me-32-chars-minimum!!!
 APP_ADMIN_PASSWORD=admin123

@@ -1,6 +1,6 @@
 # 发票管理系统
 
-上传 PDF 发票 → 自动解析字段 → 存 MySQL → 列表展示管理。前后端分离，支持批量上传、预览、下载、删除。
+上传 PDF 发票 → 自动解析字段 → 存 SQLite → 列表展示管理。前后端分离，支持批量上传、预览、下载、删除。
 
 ## 功能
 
@@ -14,10 +14,10 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Java 25 · Spring Boot 3.4.5 · Spring Data JPA · MySQL 8 · PDFBox 3.0.2 |
+| 后端 | Java 25 · Spring Boot 3.4.5 · Spring Data JPA · SQLite（Xerial JDBC）· PDFBox 3.0.2 |
 | 前端 | Vue 3 · Vite 6 · Element Plus · Axios |
 | 解析 | 正则快速路径（PDFBox 抽文本）+ LLM 兜底（OpenAI 兼容，可选） |
-| 部署 | Docker Compose（mysql + backend + nginx）· 可 1C1G 运行 |
+| 部署 | Docker Compose（backend + nginx）· 可 1C1G 运行 |
 
 ## 快速开始
 
@@ -25,7 +25,7 @@
 
 ```bash
 # 1. 准备环境变量（.env 已被 gitignore）
-cp .env.example .env   # 或手动创建：DB_PASSWORD / LLM_API_KEY / JWT_SECRET / APP_ADMIN_*
+cp .env.example .env   # 或手动创建：LLM_API_KEY / JWT_SECRET / APP_ADMIN_*（SQLite 无 DB 凭据）
 
 # 2. 构建 + 启动
 docker compose up -d --build
@@ -37,7 +37,7 @@ docker compose up -d --build
 ### 本地开发
 
 **环境前置**（见 [CLAUDE.md](CLAUDE.md)）：
-- MySQL 8 运行，`mysql -u root -p < server/ddl/schema.sql`
+- SQLite 是文件式数据库，首次启动自动建表（`spring.sql.init.mode: always` 触发 `server/src/main/resources/schema.sql`）。DB 落 `server/data/invoice.db`
 - 可选）本地 LLM 服务，配 `server/.env` 的 `LLM_API_KEY`
 
 ```bash
@@ -47,7 +47,7 @@ cd server && mvn spring-boot:run
 # 前端（5173，vite proxy /api → 8080）
 cd web && npm run dev
 
-# 浏览器端到端测试（需后端+前端+MySQL+Chrome）
+# 浏览器端到端测试（需后端+前端+Chrome）
 node web/e2e/run.mjs
 ```
 
@@ -62,7 +62,7 @@ node web/e2e/run.mjs
 ```
 server/         后端（Spring Boot）
   src/          解析器 / 服务 / 控制器 / 实体
-  ddl/schema.sql  MySQL 表结构
+  ddl/schema.sql       SQLite 表结构（与 src/main/resources/schema.sql 内容一致）
 web/            前端（Vue 3 + Vite）
   e2e/          浏览器端到端测试
 docker-compose.yml   三服务编排

@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概况
 
-发票管理系统（前后端分离）。上传 PDF 发票 → 解析字段 → 存入 MySQL → 列表展示。业务见 `Requirements.md`，当前实现已覆盖上传/解析/列表/预览/下载/删除。
+发票管理系统（前后端分离）。上传 PDF 发票 → 解析字段 → 存入 SQLite → 列表展示。业务见 `Requirements.md`，当前实现已覆盖上传/解析/列表/预览/下载/删除。
 
-- 后端 `server/`：Java 25 + Spring Boot 3.4.5 + Spring Data JPA + MySQL 8 + PDFBox 3.0.2
+- 后端 `server/`：Java 25 + Spring Boot 3.4.5 + Spring Data JPA + SQLite（Xerial JDBC）+ PDFBox 3.0.2
 - 前端 `web/`：Vue 3 + Vite 6 + Element Plus + Axios
 - 根目录 `pom.xml` 是聚合 POM（`<modules><module>server</module></modules>`），仅为让 IDEA 打开根目录时识别 `server` 为 Maven 模块，**无父依赖管理**。
 
@@ -19,16 +19,16 @@ cd server && mvn test
 # 后端单独测试类（另有 JwtTokenServiceTest、SecurityConfigTest）
 cd server && mvn test -Dtest=InvoiceParserTest
 
-# 启动后端（需先起 MySQL，见下）
+# 启动后端（首次启动自动建 ./data/invoice.db）
 cd server && mvn spring-boot:run        # 监听 8080，upload 目录 ./uploads
 
 # 前端
 cd web && npm run dev                   # 5173，vite proxy /api → 8080
 
-# 浏览器端到端测试（需先起后端 + 前端 + MySQL）
+# 浏览器端到端测试（需先起后端 + 前端）
 node web/e2e/run.mjs                    # 驱动 Xvfb + google-chrome-stable，10 项断言
 
-# Docker 部署（三服务：mysql + backend + nginx，全镜像化）
+# Docker 部署（两服务：backend + nginx，全镜像化；DB 用 SQLite 文件内嵌于 backend）
 docker compose up -d --build            # 构建+启动，对外端口 8088
 docker compose logs -f backend
 docker compose ps                       # 看 healthy 状态
@@ -37,24 +37,31 @@ docker compose down -v                  # 停止+清卷
 
 ### 环境前置
 
-- MySQL 8 运行，库/用户已在 `server/ddl/schema.sql` 定义。执行：`mysql -u root -p < server/ddl/schema.sql`。连接配置（`invoice_app` / `Invoice123!`）硬编码在 `server/src/main/resources/application.yml`。
+- SQLite 是文件式数据库，**首次启动自动建表**（`spring.sql.init.mode: always` 触发 `server/src/main/resources/schema.sql`）。开发期 DB 落 `./data/invoice.db`，容器内 `/app/data/invoice.db`（命名卷 `backend-db`）。
 - LLM 兜底调用任意 OpenAI chat-completions 兼容服务，`app.llm.base-url` 可配（当前指向 `https://opencode.ai/zen/v1`，model `big-pickle`）。API key 从环境变量 `LLM_API_KEY` 读取（`server/.env` 提供，gitignored）。`app.llm.enabled: false` 可关闭。
 - E2E 需要 `google-chrome-stable`（`/usr/bin/google-chrome-stable`）与 Xvfb 虚拟显示。
 
 ## Docker 部署（`docker-compose.yml`）
 
-三服务全镜像化，`docker compose up --build` 从零拉起，不依赖宿主机构建产物。
+两服务全镜像化，`docker compose up --build` 从零拉起，不依赖宿主机构建产物。
 
 | 服务 | 镜像 | 说明 |
 |---|---|---|
-| `mysql` | `mysql:8.0` | 挂 `schema.sql` 到 initdb，命名卷 `mysql-data` |
-| `backend` | `invoice-backend`（`server/Dockerfile` 多阶段） | maven 构建 → temurin-25-jre 运行，健康检查用 `wget /api/invoices` |
+| `backend` | `invoice-backend`（`server/Dockerfile` 多阶段） | maven 构建 → temurin-25-jre 运行，健康检查用 `wget /api/invoices`；命名卷 `backend-db` 存 SQLite 文件于 `/app/data/` |
 | `nginx` | `invoice-web`（`web/Dockerfile` 多阶段） | node 构建 dist → nginx 服务，对外 8088，反代 `/api` 到 backend |
 
 **双 `.env` 分离**（值不一致，勿混）：
-- **根 `.env`**：docker compose 变量源（`DB_PASSWORD`、`LLM_API_KEY`、`APP_LLM_*`），compose 同目录
-- **`server/.env`**：本地 dev 密钥（spring-dotenv 从 `server/` cwd 加载）
-- 容器内 DB 用 `mysql:3306`（服务名）、LLM 用根 `.env` 的 `APP_LLM_BASE_URL`；本地 DB 用 `127.0.0.1:3306`、LLM 用 `application.yml` 的 base-url。
+- **根 `.env`**：docker compose 变量源（`LLM_API_KEY`、`APP_LLM_*`、必填 `JWT_SECRET`/`APP_ADMIN_PASSWORD`），compose 同目录。SQLite 无 DB 凭据，故 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除。
+- **`server/.env`**：本地 dev 密钥（spring-dotenv 从 `server/` cwd 加载，含 `LLM_API_KEY`）
+- 容器内 DB 用 `/app/data/invoice.db`（命名卷 `backend-db`）；本地 DB 用 `./data/invoice.db`（相对 `server/` cwd）；LLM 用根 `.env` 的 `APP_LLM_BASE_URL` 覆盖 `application.yml` 的 base-url。
+
+## schema 双写
+
+SQLite DDL 写在两处（内容必须保持一致）：
+- `server/ddl/schema.sql`：人看/code review 的源文件
+- `server/src/main/resources/schema.sql`：Spring `spring.sql.init.mode: always` 启动时实际加载的副本
+
+改 schema 必须同步两份。两份顶部都有 "keep in sync" 标记。
 
 ## 解析架构（核心）
 
@@ -77,10 +84,10 @@ docker compose down -v                  # 停止+清卷
 
 两表，`server/ddl/schema.sql`：
 
-- `invoice`：`invoice_number` UNIQUE（重复上传→409）、购/销方名称+税号、`total_amount`/`tax_amount`/`total_with_tax`（DECIMAL(10,2)）、`category`（如 `*餐饮服务*餐饮服务`）、`drawer`、`file_path`（磁盘相对路径）、`created_at`。
+- `invoice`：`invoice_number` UNIQUE（重复上传→409）、购/销方名称+税号、`total_amount`/`tax_amount`/`total_with_tax`（TEXT 存 BigDecimal 字符串，由 `BigDecimalStringConverter` 双向转换，避免 SQLite REAL 浮点漂移）、`category`（如 `*餐饮服务*餐饮服务`）、`drawer`、`file_path`（磁盘相对路径）、`created_at`。
 - `app_user`：JWT 认证用单管理员表，存 BCrypt 散列（见认证架构）。
 
-JPA `ddl-auto: validate`，schema 由 SQL 文件管理，改实体需同步改 schema.sql。
+JPA `ddl-auto: none`（SQLite 类型亲和非严格，validate 频繁误报；schema.sql 是单一事实源，列名错配会被运行时的 SQL 异常直接捕获），schema 由 SQL 文件管理，改实体需同步改两份 schema.sql。
 
 ## 上传流程（`InvoiceService.upload`）
 

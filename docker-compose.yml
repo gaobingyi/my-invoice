@@ -1,39 +1,14 @@
 name: invoice-manager
 
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: invoice-mysql
-    environment:
-      MYSQL_DATABASE: invoice_db
-      MYSQL_USER: invoice_app
-      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
-      TZ: Asia/Shanghai
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --innodb-buffer-pool-size=64M --performance-schema=OFF
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./server/ddl/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpw}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-
   backend:
     image: invoice-backend:1.0.0
     build:
       context: .
       dockerfile: server/Dockerfile
     container_name: invoice-backend
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/invoice_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-      SPRING_DATASOURCE_USERNAME: invoice_app
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?}
+      SPRING_DATASOURCE_URL: jdbc:sqlite:/app/data/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
       APP_UPLOAD_DIR: /app/uploads
       LOGGING_FILE_NAME: /app/logs/invoice-server.log
       APP_LLM_ENABLED: "true"
@@ -51,6 +26,7 @@ services:
     volumes:
       - backend-data:/app/uploads
       - backend-logs:/app/logs
+      - backend-db:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/auth/ping"]
@@ -76,6 +52,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  mysql-data:
   backend-data:
   backend-logs:
+  backend-db:

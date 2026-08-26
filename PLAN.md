@@ -2,7 +2,7 @@
 
 ## Context
 
-Greenfield 项目。按 Requirements.md 开发发票管理系统：上传（存本地磁盘）、解析（PDF）、列表展示。前后端分离，后端 Java 25 + Spring Boot + MySQL，前端待定（本计划给推荐）。
+Greenfield 项目。按 Requirements.md 开发发票管理系统：上传（存本地磁盘）、解析（PDF）、列表展示。前后端分离，后端 Java 25 + Spring Boot + SQLite，前端待定（本计划给推荐）。
 
 **PDF 解析可行性已验证**：示例发票为纯文本 PDF（非扫描件），文本规整，用 PDFBox 抽文本 + 正则提取即可，无需 OCR。关键字段：`发票号码`(20位数字)、`开票日期`、购买方/销售方名称与税号、项目名称行（*餐饮服务*餐饮服务，含数量/单价/金额/税率/税额）、价税合计大小写、开票人。
 
@@ -11,7 +11,7 @@ Greenfield 项目。按 Requirements.md 开发发票管理系统：上传（存�
 | 层 | 选型 | 理由 |
 |---|---|---|
 | 后端 | Spring Boot 4.x, Java 25, Maven | 需求指定 |
-| DB | MySQL 8 + Spring Data JPA | 需求指定；CRUD 场景 JPA 最省事 |
+| DB | SQLite + Spring Data JPA | 需求指定；CRUD 场景 JPA 最省事 |
 | PDF 解析 | **Apache PDFBox 3** | Java 生态标准库，纯文本 PDF 直接 `PDFTextStripper`，无外部进程依赖 |
 | 文件存储 | 本地磁盘 `./uploads/`，DB 存相对路径 | 需求指定 |
 | 前端 | **Vue 3 + Vite + Element Plus + Axios** | 管理后台场景组件全、表格/上传开箱即用；比 React 生态在同场景模板代码少 |
@@ -81,7 +81,7 @@ web/src/
 
 ## 实施步骤
 
-1. `server/` Maven 骨架（spring-boot-starter-web/data-jpa/validation + mysql-connector-j + pdfbox + lombok）
+1. `server/` Maven 骨架（spring-boot-starter-web/data-jpa/validation + sqlite-jdbc + hibernate-community-dialects + pdfbox + lombok）
 2. Entity + Repository + schema（用 `ddl-auto: update`，本地开发够用）
 3. `InvoiceParser` + 用示例 PDF 文本写的单元测试（assert 全字段提取正确）
 4. `InvoiceService` + `InvoiceController`（上传/列表/下载）
@@ -97,7 +97,7 @@ web/src/
 
 前端：`cd web && npm run dev`，浏览器上传示例 PDF，列表出现该发票，点击下载能取回 PDF。
 
-环境前置：本机需 MySQL 8 运行 + 建好空库 `invoice_db`（计划执行时用 docker compose 起一个，一条命令）。
+环境前置：SQLite 是文件式数据库，无需起服务。`server/data/invoice.db` 由 `spring.sql.init.mode: always` 在首次启动时自动建。
 
 ## 明确跳过
 

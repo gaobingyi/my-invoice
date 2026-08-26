@@ -86,7 +86,7 @@ chmod 600 certs/origin.key
 ```
 /opt/invoice/
 ├── docker-compose.yml
-├── .env                     # 根 .env：DB_PASSWORD、LLM_API_KEY、JWT_SECRET、APP_ADMIN_PASSWORD
+├── .env                     # 根 .env：LLM_API_KEY、JWT_SECRET、APP_ADMIN_PASSWORD（SQLite 无 DB 凭据）
 ├── web/
 │   ├── nginx.conf
 │   ├── cf-allow.conf        # 允许 CF IP 段与本地私网网段
@@ -102,39 +102,17 @@ chmod 600 certs/origin.key
 name: invoice-manager
 
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: invoice-mysql
-    environment:
-      MYSQL_DATABASE: invoice_db
-      MYSQL_USER: invoice_app
-      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
-      TZ: Asia/Shanghai
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --innodb-buffer-pool-size=64M --performance-schema=OFF
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./server/ddl/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpw}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-
   backend:
     image: invoice-backend:1.0.0
     build:
       context: .
       dockerfile: server/Dockerfile
     container_name: invoice-backend
-    depends_on:
-      mysql:
-        condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/invoice_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-      SPRING_DATASOURCE_USERNAME: invoice_app
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?}
+      # SQLite 是文件式 DB，文件由命名卷 backend-db 持久化。
+      # date_class=TEXT：Xerial JDBC 默认按 INTEGER (epoch ms) 存 timestamp，
+      # 与读侧 ISO 解析错位导致 ParseException。强制 TEXT 让读写都用 ISO-8601。
+      SPRING_DATASOURCE_URL: jdbc:sqlite:/app/data/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
       APP_UPLOAD_DIR: /app/uploads
       LOGGING_FILE_NAME: /app/logs/invoice-server.log
       APP_LLM_ENABLED: "true"
@@ -149,6 +127,7 @@ services:
     volumes:
       - backend-data:/app/uploads
       - backend-logs:/app/logs
+      - backend-db:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/auth/ping"]
@@ -174,9 +153,9 @@ services:
     restart: unless-stopped
 
 volumes:
-  mysql-data:
   backend-data:
   backend-logs:
+  backend-db:
 ```
 
 ### 4.3 `web/nginx.conf`
@@ -276,8 +255,7 @@ CMD ["nginx", "-g", "daemon off;"]
 ### 4.6 根目录 `.env`（示例）
 
 ```env
-DB_PASSWORD=Invoice123!
-MYSQL_ROOT_PASSWORD=rootpw
+# SQLite 是文件式数据库，无 DB 凭据。
 LLM_API_KEY=sk-xxx
 JWT_SECRET=change-me-32-chars-minimum!!!
 APP_ADMIN_PASSWORD=admin123
@@ -366,4 +344,4 @@ docker compose ps   # 全部 healthy
 - **证书续期**：CF Origin Cert 15 年一换，到期前在 Dashboard 重新生成，替换 `/opt/invoice/certs/`，`docker compose restart nginx`
 - **CF IP 段更新**：`curl https://www.cloudflare.com/ips-v4 > /opt/invoice/web/cf-allow.conf && curl https://www.cloudflare.com/ips-v6 >> /opt/invoice/web/cf-allow.conf && echo "deny all;" >> /opt/invoice/web/cf-allow.conf && docker compose restart nginx`
 - **日志**：`docker compose logs -f --tail=200 backend` / `nginx`
-- **备份**：`mysqldump -h 127.0.0.1 -u invoice_app -p invoice_db > backup_$(date +%F).sql`（仅备份数据卷 `mysql-data` 亦可）
+- **备份**：SQLite 在线（生产建议 backend 镜像加装 `sqlite3` CLI）：`docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/app/data/backup-$(date +%F).db'" && docker cp invoice-backend:/app/data/backup-$(date +%F).db /opt/backup/`。上传文件卷：`docker run --rm -v invoice-manager_backend-data:/data -v /opt/backup:/backup alpine tar czf /backup/uploads-$(date +%F).tar.gz /data`

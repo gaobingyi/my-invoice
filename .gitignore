@@ -11,6 +11,12 @@ npm-debug.log*
 # ---- 运行时数据 ----
 server/uploads/
 server/logs/
+server/data/
+
+# ---- SQLite 数据库文件 ----
+*.db
+*.db-wal
+*.db-shm
 
 # ---- 测试样例 ----
 invoice_examples/

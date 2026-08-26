@@ -162,12 +162,16 @@ public class InvoiceService {
     }
 
     private static boolean isDuplicateKey(DataIntegrityViolationException e) {
-        // MySQL 唯一键冲突的 vendor code 恒为 1062（SQLState 23000 是 NOT NULL 等约束共享的
-        // 大类，不能单用作判据；message 文本 "Duplicate entry" 在非 en locale 下会本地化）。
-        // 遍历 cause 链取根 SQLException 的错误码判定，与驱动/服务端语言无关。
+        // Xerial SQLite JDBC 唯一键冲突：vendor code 恒为 19（SQLITE_CONSTRAINT），message 含
+        // "UNIQUE constraint failed: <table>.<column>"。SQLState 23000 与 NOT NULL/CHECK 共享，
+        // 不可单用作判据。遍历 cause 链取根 SQLException，按「错误码 + 关键字子串」双判据，
+        // 与驱动版本/服务端语言无关。
         for (Throwable t = e; t != null; t = t.getCause()) {
-            if (t instanceof java.sql.SQLException se && se.getErrorCode() == 1062) {
-                return true;
+            if (t instanceof java.sql.SQLException se && se.getErrorCode() == 19) {
+                String m = se.getMessage();
+                if (m != null && m.toLowerCase().contains("unique")) {
+                    return true;
+                }
             }
         }
         return false;

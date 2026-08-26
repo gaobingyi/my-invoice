@@ -1,13 +1,20 @@
 spring:
   application.name: invoice-server
   datasource:
-    url: jdbc:mysql://127.0.0.1:3306/invoice_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-    username: invoice_app
-    password: ${DB_PASSWORD:}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    # date_class=TEXT：Xerial JDBC 默认按 INTEGER (epoch ms) 存 timestamp，与读侧 ISO 解析
+    # 错位导致 ParseException。强制 TEXT 模式，读写都用 ISO-8601。
+    url: jdbc:sqlite:./data/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
+    driver-class-name: org.sqlite.JDBC
   jpa:
-    hibernate.ddl-auto: validate
+    # SQLite 类型亲和（type affinity）非严格：INTEGER 与 BIGINT、TEXT 与 VARCHAR/TIMESTAMP
+    # 在 validate 阶段频繁误报。schema.sql 已是单一事实源，列名错配会被运行时的 SQL
+    # 异常直接捕获（"no such column"），代价是失去启动期校验。
+    hibernate.ddl-auto: none
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
     open-in-view: false
+  sql:
+    init:
+      mode: always
   servlet:
     multipart:
       max-file-size: 10MB

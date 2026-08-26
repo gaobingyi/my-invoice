@@ -1,5 +1,6 @@
 package com.example.invoice.entity;
 
+import com.example.invoice.converter.BigDecimalStringConverter;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -11,6 +12,7 @@ public class Invoice {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", columnDefinition = "INTEGER")
     private Long id;
 
     @Column(name = "invoice_number", nullable = false, unique = true, length = 20)
@@ -34,12 +36,15 @@ public class Invoice {
     @Column(name = "category", length = 64)
     private String category;
 
+    @Convert(converter = BigDecimalStringConverter.class)
     @Column(name = "total_amount", precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
+    @Convert(converter = BigDecimalStringConverter.class)
     @Column(name = "tax_amount", precision = 12, scale = 2)
     private BigDecimal taxAmount;
 
+    @Convert(converter = BigDecimalStringConverter.class)
     @Column(name = "total_with_tax", precision = 12, scale = 2)
     private BigDecimal totalWithTax;
 

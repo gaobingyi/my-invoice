@@ -1,17 +1,18 @@
 # 发票管理系统 · 云端部署指南
 
 > 目标场景：**海外单机 VPS + Docker Compose**，个人/内部使用。
-> 前置：已有可用的 `docker-compose.yml`（三服务：mysql + backend + nginx，全镜像化）。
+> 前置：已有可用的 `docker-compose.yml`（两服务：backend + nginx，全镜像化；数据库用 SQLite 文件内嵌于 backend）。
 
 ---
 
 ## 1. 部署架构
 
 ```
-[浏览器] --HTTPS(443)--> [Caddy/nginx] --反向代理--> [nginx:8088 容器] --/api--> [backend:8080 容器] --> [mysql:3306 容器]
+[浏览器] --HTTPS(443)--> [Caddy/nginx] --反向代理--> [nginx:8088 容器] --/api--> [backend:8080 容器]
                               │                                              │
-                              └─ 静态前端 dist                               ├─ LLM 兜底 → https://opencode.ai/zen/v1
-                                                                              └─ 命名卷: mysql-data / backend-data / backend-logs
+                              └─ 静态前端 dist                               ├─ SQLite 文件 /app/data/invoice.db
+                                                                              ├─ LLM 兜底 → https://opencode.ai/zen/v1
+                                                                              └─ 命名卷: backend-data / backend-logs / backend-db
 ```
 
 - 前端构建产物（`web/Dockerfile` 多阶段）与后端 jar（`server/Dockerfile`）都已进镜像
@@ -27,11 +28,11 @@
 | 项 | 建议 |
 |---|---|
 | 地域 | 海外（目标已定，海外云） |
-| 规格 | **1C1G**（已调优，见 §8 附录；预计容器 ~450MiB + 系统 ~200MiB） |
+| 规格 | **1C1G**（已调优，见 §8 附录；预计容器 ~260MiB + 系统 ~200MiB） |
 | 系统 | Ubuntu 22.04/24.04 LTS |
 | 存储 | 40GB SSD（镜像 + 卷 + 备份） |
 
-> 1C1G 是下限。若预算允许，2C2G 更从容（Java 默认堆 + MySQL 默认 buffer pool，免调优）。
+> 1C1G 是下限。若预算允许，2C2G 更从容（Java 默认堆免调优）。切到 SQLite 后 MySQL 内存压力已消除，1C1G 跑得很从容。
 
 ### 2.2 SSH 登录
 
@@ -98,7 +99,7 @@ scp images.tar.gz root@<服务器IP>:/root/
 docker load < images.tar.gz
 ```
 
-> 基础镜像（mysql/nginx/temurin/node）在云端 `docker compose up` 时按需拉取。
+> 基础镜像（nginx/temurin/node）在云端 `docker compose up` 时按需拉取。SQLite 走 Xerial JDBC（已打进 backend 镜像），无独立 DB 镜像。
 
 ### 3.2 上传项目文件（仅方式二需要）
 
@@ -125,8 +126,7 @@ vi .env
 
 ```ini
 # 云端 .env —— 勿提交，勿与本地 .env 混用
-DB_PASSWORD=更换为强密码
-MYSQL_ROOT_PASSWORD=更换为强密码
+# SQLite 是文件式数据库，无 DB 凭据。
 LLM_API_KEY=你的新 key
 APP_LLM_MODEL=big-pickle
 APP_LLM_BASE_URL=https://opencode.ai/zen/v1
@@ -137,8 +137,7 @@ APP_ADMIN_PASSWORD=更换为强密码
 ```
 
 **安全要求**：
-- `DB_PASSWORD` 别用 `Invoice123!`，生成随机强密码：`openssl rand -base64 18`
-- `JWT_SECRET` 必须设置，否则后端回退 dev 默认密钥（不安全）——同样用 `openssl rand -base64 48`
+- `JWT_SECRET` 必须设置，否则后端回退 dev 默认密钥（不安全）——用 `openssl rand -base64 48`
 - `APP_ADMIN_PASSWORD` 别用默认 `admin123`，生产必须改
 - 云上 `chmod 600 .env`
 - 本地/云端 `.env` 都是 gitignored，**绝不提交仓库**
@@ -147,7 +146,6 @@ APP_ADMIN_PASSWORD=更换为强密码
 
 | 值 | 本地（根 `.env`） | 云端 `.env` |
 |---|---|---|
-| `DB_PASSWORD` | `Invoice123!`（开发） | 随机强密码 |
 | `APP_LLM_BASE_URL` | `https://opencode.ai/zen/v1` | 相同（海外可达） |
 | `LLM_API_KEY` | 你的 key | 同 key 或云上新 key |
 | `JWT_SECRET` | 本地随机值（已在根 `.env`） | 云上新随机值（**两端不同**，改了 token 全失效可接受） |
@@ -251,31 +249,50 @@ curl -s http://localhost:8088/api/invoices -H "Authorization: Bearer $TOKEN"   #
 
 ## 7. 数据备份（必须）
 
-### 7.1 MySQL 定时备份（cron）
+### 7.1 SQLite + 上传文件定时备份（cron）
 
 ```bash
 crontab -e
 ```
 
 ```cron
-# 每天 3 点备份 MySQL 数据卷 + 上传文件卷
-0 3 * * * docker exec invoice-mysql mysqldump -u root -p'密码' invoice_db | gzip > /opt/backup/invoice-$(date +\%F).sql.gz
+# 每天 3 点：在线备份 SQLite（WAL 模式下 .backup 仍能拿到一致快照），
+# 并对上传文件卷做 tar 归档。SQLite 文件存于 backend-db 命名卷内的 /app/data/。
+0 3 * * * docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/app/data/backup-$(date +\%F).db'" && docker cp invoice-backend:/app/data/backup-$(date +\%F).db /opt/backup/
 0 3 * * * docker run --rm -v invoice-manager_backend-data:/data -v /opt/backup:/backup alpine tar czf /backup/uploads-$(date +\%F).tar.gz /data
+```
+
+> `sqlite3` CLI 镜像里默认没有。本方案假设已在 backend 镜像装好（生产建议加一行 `RUN apk add --no-cache sqlite` 进 `server/Dockerfile`；如未装，备选 `cp` 路径见下）。
+
+**备选（无 sqlite3 CLI）**：直接 cp 主 DB 文件——WAL 模式下需先让 SQLite 跑一次 checkpoint，否则可能丢最后一次事务：
+
+```cron
+0 3 * * * docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/app/data/backup-$(date +\%F).db'" || docker exec invoice-backend sh -c 'sqlite3 /app/data/invoice.db "PRAGMA wal_checkpoint(TRUNCATE);"' && docker cp invoice-backend:/app/data/invoice.db /opt/backup/invoice-$(date +\%F).db
 ```
 
 ### 7.2 保留策略
 
 ```bash
-find /opt/backup -name "*.gz" -mtime +30 -delete   # 保留 30 天
+find /opt/backup -name "*.db" -mtime +30 -delete       # 保留 30 天的 DB 备份
+find /opt/backup -name "uploads-*.tar.gz" -mtime +30 -delete
 ```
 
 ### 7.3 恢复演练（重要，备份没验证=没备份）
 
 ```bash
-# 恢复 DB
-gunzip < invoice-2026-08-11.sql.gz | docker exec -i invoice-mysql mysql -u root -p'密码' invoice_db
+# 停 backend（防 SQLite 锁冲突）
+docker compose stop backend
+
+# 恢复 DB：把备份文件 cp 进 backend-db 命名卷
+docker cp /opt/backup/invoice-2026-08-11.db invoice-backend:/app/data/invoice.db
+# 如有 WAL/SHM 残留，一并清掉
+docker exec invoice-backend sh -c 'rm -f /app/data/invoice.db-wal /app/data/invoice.db-shm'
+
 # 恢复上传文件
 docker run --rm -v invoice-manager_backend-data:/data -v /opt/backup:/backup alpine tar xzf /backup/uploads-2026-08-11.tar.gz -C /
+
+# 起 backend
+docker compose start backend
 ```
 
 ---
@@ -303,7 +320,7 @@ scp images.tar.gz root@<服务器IP>:/root/
 docker load < images.tar.gz && cd /opt/invoice && docker compose up -d
 ```
 
-> 两种方式共用同一个 `schema.sql`（initdb）与命名卷，切换方式不影响已有数据。
+> 两种方式共用同一个 `schema.sql`（首次启动由 `spring.sql.init` 自动执行）与命名卷，切换方式不影响已有数据。
 
 ---
 
@@ -312,7 +329,7 @@ docker load < images.tar.gz && cd /opt/invoice && docker compose up -d
 - [ ] `.env` `chmod 600`，强密码，未进仓库
 - [ ] `JWT_SECRET` 已设强随机值（未设 = dev 默认密钥，可伪造 token）
 - [ ] `APP_ADMIN_PASSWORD` 已改（未改 = `admin123`，可被猜）
-- [ ] MySQL 端口**未**暴露公网（compose 无 `3306:3306` 映射）
+- [ ] SQLite DB 文件**未**暴露公网（compose 无 `backend-db` 卷挂到公网路径；DB 在容器内 `/app/data/`）
 - [ ] HTTPS 已启用（Cloudflare Tunnel 或 Caddy）
 - [ ] backend/nginx 有 `restart: unless-stopped`
 - [ ] 容器加 `TZ=Asia/Shanghai`（否则 `created_at` 差 8 小时）
@@ -338,21 +355,16 @@ backend:
   environment:
     - TZ=Asia/Shanghai
     - JAVA_OPTS=-Xmx256m -Xms128m -XX:+UseSerialGC -XX:MaxRAMPercentage=50
-mysql:
-  command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci \
-           --innodb-buffer-pool-size=64M --performance-schema=OFF
 ```
 
 | 调优项 | 值 | 效果 |
 |---|---|---|
 | JVM 堆 | `-Xmx256m` | Java 峰值内存从 ~500MB 压到 ~250MB |
 | GC | `UseSerialGC` | 单核下比默认 G1 更省内存 |
-| MySQL buffer pool | `64M` | 默认 128MB 减半 |
-| `performance-schema=OFF` | 关 | MySQL 省 ~50MB 内存 |
 
 > `JAVA_OPTS` 经 `server/Dockerfile` 的 `ENTRYPOINT ["sh","-c","java $JAVA_OPTS ..."]` 传入。改堆参数只需改 compose 的 `JAVA_OPTS`，无需重建镜像（Dockerfile 已支持 env 展开）。
 
-预计部署后内存：backend ~250MiB + mysql ~200MiB + nginx ~10MiB ≈ **460MiB**，系统留 ~500MiB。
+切到 SQLite 后已无独立 DB 进程。**预计部署后内存**：backend ~250MiB + nginx ~10MiB ≈ **260MiB**，系统留 ~740MiB。1C1G 跑得很从容。
 
 **实测监控**：
 ```bash
@@ -360,4 +372,4 @@ docker stats --no-stream    # 看容器内存
 free -m                     # 看系统内存余量
 ```
 
-**仍紧张时**：MySQL 还可加 `--table-open-cache=400 --thread-cache-size=16`；或升 2C2G（最省心）。
+**仍紧张时**：JVM 堆再压到 `-Xmx192m`；或升 2C2G（最省心）。
