@@ -39,7 +39,7 @@ docker compose down -v                  # 停止+清卷
 
 - MySQL 8 运行，库/用户已在 `server/ddl/schema.sql` 定义。执行：`mysql -u root -p < server/ddl/schema.sql`。连接配置（`invoice_app` / `Invoice123!`）硬编码在 `server/src/main/resources/application.yml`。
 - LLM 兜底调用任意 OpenAI chat-completions 兼容服务，`app.llm.base-url` 可配（当前指向 `https://opencode.ai/zen/v1`，model `big-pickle`）。API key 从环境变量 `LLM_API_KEY` 读取（`server/.env` 提供，gitignored）。`app.llm.enabled: false` 可关闭。
-- E2E 需要 `google-chrome-stable`（`/usr/bin/google-chrome-stable`）与 Xvfb 虚拟显示。WSL2 无 GUI，用 Xvfb。
+- E2E 需要 `google-chrome-stable`（`/usr/bin/google-chrome-stable`）与 Xvfb 虚拟显示。
 
 ## Docker 部署（`docker-compose.yml`）
 
@@ -55,8 +55,6 @@ docker compose down -v                  # 停止+清卷
 - **根 `.env`**：docker compose 变量源（`DB_PASSWORD`、`LLM_API_KEY`、`APP_LLM_*`），compose 同目录
 - **`server/.env`**：本地 dev 密钥（spring-dotenv 从 `server/` cwd 加载）
 - 容器内 DB 用 `mysql:3306`（服务名）、LLM 用根 `.env` 的 `APP_LLM_BASE_URL`；本地 DB 用 `127.0.0.1:3306`、LLM 用 `application.yml` 的 base-url。
-
-**WSL2 坑**：docker daemon 拉镜像卡死时，配 systemd 代理 `/etc/systemd/system/docker.service.d/http-proxy.conf`（`HTTP_PROXY/HTTPS_PROXY=http://172.26.48.1:7897`，`NO_PROXY` 保国内源直连）。国内镜像源已在 `/etc/docker/daemon.json`。
 
 ## 解析架构（核心）
 
@@ -115,7 +113,7 @@ JPA `ddl-auto: validate`，schema 由 SQL 文件管理，改实体需同步改 s
 - `web/src/views/InvoiceList.vue`：上传按钮 `.upload-btn`（E2E 选择器）、批量上传（`:limit="20"`，循环调用）、列表（销售方/购买方/项目名称/上传时间等列）、预览用 el-dialog + iframe（src 为 `fetchFile()` 的 blob URL）、下载用隐藏 `<a download>`。
 - `web/e2e/run.mjs` 断言依赖这些 Element Plus DOM 结构，改前端时勿破坏。
 
-## 开发环境坑（WSL2 + IDEA）
+## 开发环境坑
 
-- IDEA 打开**根目录**（靠聚合 POM），JDK 走 WSL 集成。`.idea/remote-targets.xml` 中 WSL JDK homePath 必须是绝对路径 `/usr/lib/jvm/java-25-openjdk-amd64` —— 用相对路径 `$PROJECT_DIR$` 会映射成 UNC `//wsl.localhost/...` 导致 Run 失败。
+- IDEA 打开**根目录**（靠聚合 POM）。
 - 服务器端 curl 测中文上传失败时，先怀疑编码，不要怀疑 LLM。

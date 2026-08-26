@@ -47,5 +47,4 @@ docker compose up -d --build                   # 三服务全镜像化，对外 
 ## 部署坑
 
 - nginx 对外 **8088 HTTPS**（`certs/origin.pem` + Cloudflare IP 白名单 `web/cf-allow.conf`），改端口/证书注意 compose 卷挂载。
-- WSL2 下 docker 拉镜像卡死：配 systemd 代理 `HTTP_PROXY=http://172.26.48.1:7897`（宿主机网关 IP 会变，用 `ip route | grep default` 查）。
 - 服务器端 curl 测中文上传失败先怀疑编码，不要怀疑 LLM。

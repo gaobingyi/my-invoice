@@ -7,7 +7,7 @@
 ## 用户已确认决策
 
 - **对外端口 8088**（避开本地 8080/5173）
-- **LLM 兜底默认开启指向宿主机**：`APP_LLM_ENABLED=true`、`APP_LLM_BASE_URL=http://host.docker.internal:20128/v1`，WSL2 需 `extra_hosts: ["host.docker.internal:host-gateway"]`
+- **LLM 兜底默认开启指向宿主机**：`APP_LLM_ENABLED=true`、`APP_LLM_BASE_URL=http://host.docker.internal:20128/v1`，需 `extra_hosts: ["host.docker.internal:host-gateway"]`
 
 ## 新建文件（5 个）
 
@@ -20,7 +20,7 @@
 | `.env` | compose 密钥（gitignore 已覆盖） |
 | `.dockerignore` | 排除 .git/.env/target/node_modules/dist/uploads/logs/invoice_examples |
 
-## 镜像 tag（经代理验证存在）
+## 镜像 tag（已验证存在）
 
 - 构建：`maven:3.9-eclipse-temurin-25`（自带 JDK25+Maven）
 - 运行：`eclipse-temurin:25-jre-alpine`
