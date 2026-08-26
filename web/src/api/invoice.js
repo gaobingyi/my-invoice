@@ -54,12 +54,38 @@ export function uploadInvoice(file) {
   })
 }
 
-export function listInvoices(page, size) {
-  return http.get('/invoices', { params: { page, size } })
+export function listInvoices(page, size, used) {
+  const params = { page, size }
+  if (used !== undefined && used !== null) params.used = used
+  return http.get('/invoices', { params })
 }
 
 export function deleteInvoice(id) {
   return http.delete(`/invoices/${id}`)
+}
+
+/** ===== 导出批次 =====
+ * 创建批次只建记录不下载；ZIP 由批次页按需生成（blob 下载，同 fetchFile 惯例）。 */
+export function createExportBatch(ids, batchMonth) {
+  return http.post('/export-batches', { ids, batchMonth })
+}
+
+export function listExportBatches(page, size) {
+  return http.get('/export-batches', { params: { page, size } })
+}
+
+/** 批次内发票清单（预览用）。已删除的票不在其中。 */
+export function listBatchInvoices(batchId) {
+  return http.get(`/export-batches/${batchId}/invoices`)
+}
+
+export async function fetchBatchZip(id) {
+  const { data } = await http.get(`/export-batches/${id}/zip`, { responseType: 'blob' })
+  return data
+}
+
+export function deleteExportBatch(id) {
+  return http.delete(`/export-batches/${id}`)
 }
 
 /** 预览/下载统一走 blob（裸 URL 带不了 Authorization header）。

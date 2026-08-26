@@ -1,11 +1,13 @@
 package com.example.invoice.service;
 
 import com.example.invoice.entity.Invoice;
+import com.example.invoice.repository.ExportBatchItemRepository;
 import com.example.invoice.repository.InvoiceRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,6 +19,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -34,12 +39,16 @@ public class InvoiceService {
     private static final int MAX_LIST_SIZE = 100;
 
     private final InvoiceRepository repository;
+    private final ExportBatchItemRepository exportBatchItemRepository;
     private final InvoiceParser parser;
     private final Path uploadDir;
 
-    public InvoiceService(InvoiceRepository repository, com.example.invoice.service.InvoiceParser parser,
+    public InvoiceService(InvoiceRepository repository,
+                          ExportBatchItemRepository exportBatchItemRepository,
+                          com.example.invoice.service.InvoiceParser parser,
                           @Value("${upload-dir:./uploads}") String uploadDir) {
         this.repository = repository;
+        this.exportBatchItemRepository = exportBatchItemRepository;
         this.parser = parser;
         this.uploadDir = Paths.get(uploadDir);
     }
@@ -149,18 +158,45 @@ public class InvoiceService {
         }
     }
 
-    public Page<Invoice> list(int page, int size) {
+    public Page<Invoice> list(int page, int size, Boolean used) {
         // pocfile: 防 size 无上限把全表一次拉进内存；page/size 越界也钳制到合法范围。
         if (page < 0) page = 0;
         size = Math.min(Math.max(size, 1), MAX_LIST_SIZE);
-        return repository.findAll(PageRequest.of(page, size,
-                Sort.by(Sort.Direction.DESC, "createdAt")));
+        Pageable pageable = PageRequest.of(page, size,
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+        if (used == null) {
+            return repository.findAll(pageable);
+        }
+        return repository.findByUsed(used, pageable);
     }
 
     public Path resolveFile(Long id) {
         Invoice inv = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("发票不存在: " + id));
         return safePath(inv.getFilePath());
+    }
+
+    /** 导出打包用：按已加载的实体解析磁盘路径。文件不存在返回 null（writeZip 记入缺失
+     * 清单而非中断整包），路径非法仍抛 IllegalArgumentException（DB 被改的防御）。 */
+    public Path resolveFileOrNull(Invoice inv) {
+        try {
+            Path p = safePath(inv.getFilePath());
+            return Files.exists(p) ? p : null;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        }
+    }
+
+    /** 批量解析：一次查询取回实体再逐个 safePath（防穿越逻辑与单张版一致）。 */
+    public Map<Long, Path> resolveFiles(Collection<Long> ids) {
+        Map<Long, Path> out = new LinkedHashMap<>();
+        for (Invoice inv : repository.findAllById(ids)) {
+            Path p = safePath(inv.getFilePath());
+            if (Files.exists(p)) {
+                out.put(inv.getId(), p);
+            }
+        }
+        return out;
     }
 
     private String buildFilename(ParsedInvoice p, String originalName, String resolvedNumber) {
@@ -210,5 +246,8 @@ public class InvoiceService {
         // retry; deleting the row first orphanes the PDF forever when the file delete fails.
         Files.deleteIfExists(safePath(inv.getFilePath()));
         repository.delete(inv);
+        // 导出批次关联项一并清理（无外键，需手动）。批次快照字段不改 —— 历史记录仍显示
+        // 创建时点张数/合计，ZIP 重新生成时该票进「缺失清单.txt」。
+        exportBatchItemRepository.deleteByInvoiceId(id);
     }
 }

@@ -54,6 +54,14 @@ public class Invoice {
     @Column(name = "file_path", nullable = false, length = 255)
     private String filePath;
 
+    // pocfile: 已使用标记。导出批次创建时置 true；批次删除且无其他批次引用时清除。
+    // SQLite 无 BOOLEAN，INTEGER 0/1 由 Hibernate 自动映射。
+    @Column(name = "used", nullable = false)
+    private Boolean used = false;
+
+    @Column(name = "used_at")
+    private LocalDateTime usedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -88,6 +96,10 @@ public class Invoice {
     public void setDrawer(String drawer) { this.drawer = drawer; }
     public String getFilePath() { return filePath; }
     public void setFilePath(String filePath) { this.filePath = filePath; }
+    public Boolean getUsed() { return used; }
+    public void setUsed(Boolean used) { this.used = used; }
+    public LocalDateTime getUsedAt() { return usedAt; }
+    public void setUsedAt(LocalDateTime usedAt) { this.usedAt = usedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

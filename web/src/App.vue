@@ -42,6 +42,10 @@
           <el-icon><tickets /></el-icon>
           <template #title>发票列表</template>
         </el-menu-item>
+        <el-menu-item index="exports">
+          <el-icon><folder-opened /></el-icon>
+          <template #title>导出记录</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <div class="content">
@@ -73,7 +77,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { UploadFilled, Tickets, Fold, Expand, UserFilled, ArrowDown } from '@element-plus/icons-vue'
+import { UploadFilled, Tickets, FolderOpened, Fold, Expand, UserFilled, ArrowDown } from '@element-plus/icons-vue'
 import { getUsername, setToken, setUsername } from './api/invoice'
 import { applyTheme } from './utils/theme'
 import ThemeToggle from './components/ThemeToggle.vue'
@@ -88,14 +92,24 @@ const hoverExpand = ref(false)
 // 展开态 = 持久展开，或（持久收起时）鼠标悬停临时展开（flyout）
 const isExpanded = computed(() => !collapsed.value || hoverExpand.value)
 
-const activeMenu = computed(() => (route.path.startsWith('/list') ? 'list' : 'upload'))
+// 菜单 index ↔ 路由前缀映射（新增菜单项只需加一行，不再写三元链）
+const MENU_ROUTES = [
+  { index: 'exports', prefix: '/exports' },
+  { index: 'list', prefix: '/list' },
+  { index: 'upload', prefix: '/upload' }
+]
+const activeMenu = computed(() => {
+  const hit = MENU_ROUTES.find(m => route.path.startsWith(m.prefix))
+  return hit ? hit.index : 'upload'
+})
 const isLoginPage = computed(() => route.path === '/login')
 // 首次导航 resolve 前不渲染，避免暗黑下先闪 Layout 再跳登录页
 const routeReady = ref(false)
 router.isReady().finally(() => { routeReady.value = true })
 
 function onMenuSelect(index) {
-  router.push(index === 'upload' ? '/upload' : '/list')
+  const hit = MENU_ROUTES.find(m => m.index === index)
+  router.push(hit ? hit.prefix : '/upload')
   if (window.matchMedia('(max-width: 768px)').matches) {
     collapsed.value = true
     localStorage.setItem('sidebarCollapsed', 'true')

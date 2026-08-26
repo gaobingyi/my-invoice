@@ -6,6 +6,7 @@ const routes = [
   { path: '/', redirect: '/upload' },
   { path: '/upload', name: 'upload', component: () => import('../views/InvoiceUpload.vue') },
   { path: '/list', name: 'list', component: () => import('../views/InvoiceList.vue') },
+  { path: '/exports', name: 'exports', component: () => import('../views/ExportBatchList.vue') },
   // pocfile: 兜底路由，未知路径渲染 404 页，避免空白 router-view
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../views/NotFound.vue') }
 ]
