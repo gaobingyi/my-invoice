@@ -264,7 +264,7 @@ docker compose ps   # 全部 healthy，cloudflared 显示 "Connection establishe
 - **Tunnel Token 轮换**：Zero Trust → Networks → Tunnels → Configure → Rotate token → 更新 `.env` → `docker compose up -d cloudflared`
 - **cloudflared 升级**：`docker compose pull cloudflared && docker compose up -d cloudflared`
 - **日志**：`docker compose logs -f --tail=200 cloudflared` / `nginx` / `backend`
-- **备份**：同 DNS 方案 —— 跑 `scripts/backup-r2.sh`（`DEPLOY.md §7`）：SQLite `.backup` 一致快照 + 上传文件卷打成单包，rclone 传 Cloudflare R2 异地。
+- **备份**：同 DNS 方案 —— 跑 `scripts/backup-drive.sh`（`DEPLOY.md §7`）：SQLite `.backup` 一致快照 + 上传文件卷打成单包，rclone 传 Google Drive 异地。
 
 ---
 

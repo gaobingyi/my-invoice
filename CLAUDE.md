@@ -40,8 +40,8 @@ docker compose logs -f backend
 docker compose ps                       # 看 healthy 状态
 docker compose down -v                  # 停止+清卷
 
-# 异地备份（VPS 上跑）：每日 3 点把 DB+uploads 打成单包传 Cloudflare R2，见 scripts/backup-r2.sh + DEPLOY.md §7
-bash scripts/backup-r2.sh
+# 异地备份（VPS 上跑）：每日 3 点把 DB+uploads 打成单包传 Google Drive，见 scripts/backup-drive.sh + DEPLOY.md §7
+bash scripts/backup-drive.sh
 ```
 
 ### 环境前置

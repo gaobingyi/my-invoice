@@ -1,27 +1,29 @@
 #!/usr/bin/env bash
 #
-# 每日 3 点异地备份到 Cloudflare R2（在 VPS 宿主机执行，需对 compose 有 docker 权限）。
+# 每日 3 点异地备份到 Google Drive（在 VPS 宿主机执行，需对 compose 有 docker 权限）。
 #
 # 产出：单个 tar.gz（包内 db/invoice.db + uploads/uploads.tar.gz）→ 落到 /opt/backup/，
-#       再经 rclone 上传到 R2 的 invoice-backup bucket 异地保存。
+#       再经 rclone 上传到 Google Drive 的 invoice-backup 目录异地保存。
 #
 # 与旧方案的差异：DB 与上传文件此前是两个独立文件且只存本机（非异地）；
-# 本脚本把它们打成一个包，并上传 R2，作异地容灾。
+# 本脚本把它们打成一个包，并上传 Google Drive，作异地容灾（VPS 挂掉备份仍在）。
 #
 # 前提（一次性）：
-#   1) 宿主机已装 rclone 并配好 S3 remote（provider Cloudflare，见 DEPLOY.md §7.1）。
+#   1) 宿主机已装 rclone 并配好 Google Drive remote（见 DEPLOY.md §7.1）。
+#      注意：rclone 共享 client_id 已于 2026 年停用，须在 Google API Console
+#      创建自己的 OAuth client（Dataskit/Desktop app），否则 token 会失效。
 #   2) backend 镜像已装 sqlite3 CLI（server/Dockerfile 已 `apk add sqlite`）。
 #   3) 数据卷 —— DB 在 backend-db(/app/data/invoice.db)，上传文件在 backend-data(/app/uploads)。
 #
-# 用法：bash /opt/invoice/scripts/backup-r2.sh
-# cron 示例：12 3 * * * /opt/invoice/scripts/backup-r2.sh >> /var/log/invoice-backup.log 2>&1
+# 用法：bash /opt/invoice/scripts/backup-drive.sh
+# cron 示例：12 3 * * * /opt/invoice/scripts/backup-drive.sh >> /var/log/invoice-backup.log 2>&1
 
 set -euo pipefail
 
 # 可调项
 BACKUP_DIR="${BACKUP_DIR:-/opt/backup}"      # 本地中转 + 保留目录
-R2_REMOTE="${R2_REMOTE:-invoice-r2}"         # rclone remote 名
-R2_BUCKET="${R2_BUCKET:-invoice-backup}"     # R2 bucket 名
+DRIVE_REMOTE="${DRIVE_REMOTE:-invoice-drive}" # rclone remote 名（Google Drive）
+DRIVE_FOLDER="${DRIVE_FOLDER:-invoice-backup}" # Google Drive 下的目标目录名
 RETENTION_DAYS="${RETENTION_DAYS:-30}"       # 本地/远端保留天数
 COMPOSE_DIR="${COMPOSE_DIR:-/opt/invoice}"   # docker-compose.yml 所在目录（restore 时用）
 
@@ -58,13 +60,14 @@ echo "[backup] 已生成 $OUT ($(du -h "$OUT" | cut -f1))"
 # 4) 本地保留策略：清掉 N 天前的旧包。
 find "$BACKUP_DIR" -maxdepth 1 -name 'invoice-backup-*.tar.gz' -mtime +"$RETENTION_DAYS" -delete
 
-# 5) 上传 R2 异地备份。
-#    --s3-no-check-bucket：R2 bucket 由控制台预建，跳过每秒 AWS 的 HeadBucket 探测。
-if ! rclone copy "$OUT" "$R2_REMOTE:$R2_BUCKET/" --s3-no-check-bucket; then
-    echo "[backup] 错误：rclone 上传 R2 失败（本地包已保留，可重试）" >&2
+# 5) 上传 Google Drive 异地备份。
+#    rclone 会按文件名复制；同名已存在则跳过（增量），不再重复上传。
+if ! rclone copy "$OUT" "$DRIVE_REMOTE:$DRIVE_FOLDER/"; then
+    echo "[backup] 错误：rclone 上传 Google Drive 失败（本地包已保留，可重试）" >&2
     exit 1
 fi
-# 远端保留：删掉 N 天前的旧包（以 R2 对象时间戳计）。
-rclone delete "$R2_REMOTE:$R2_BUCKET/" --min-age "${RETENTION_DAYS}d" --s3-no-check-bucket || true
+# 远端保留：删掉 N 天前的旧包（以 Google Drive 文件修改时间计）。
+#   用 --drive-use-trash=false 永久删除而非丢回收站，避免回收站越积越大。
+rclone delete "$DRIVE_REMOTE:$DRIVE_FOLDER/" --min-age "${RETENTION_DAYS}d" --drive-use-trash=false || true
 
-echo "[backup] 完成（本地 + R2 已上传）"
+echo "[backup] 完成（本地 + Google Drive 已上传）"
