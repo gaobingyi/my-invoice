@@ -49,8 +49,10 @@ fs.mkdirSync(SHOT_DIR, { recursive: true })
 
 const BASE = 'http://localhost:5173'
 const CHROME = '/usr/bin/google-chrome-stable'
-const SAMPLE = '/home/gaobingyi/code_repos/my-invoice-manager/invoice_examples/_餐饮服务_餐饮服务_-2026年05月26日-201.00.pdf'
-const SAMPLE2 = '/home/gaobingyi/code_repos/my-invoice-manager/invoice_examples/260331_178.00_深圳市美之高实业发展有限公司.pdf'
+// 样例发票位于仓库根 invoice_examples/，用 __dirname 相对定位，避免依赖机器/账号路径
+const INV_EX = path.join(__dirname, '../../invoice_examples')
+const SAMPLE = path.join(INV_EX, '_餐饮服务_餐饮服务_-2026年05月26日-201.00.pdf')
+const SAMPLE2 = path.join(INV_EX, '260331_178.00_深圳市美之高实业发展有限公司.pdf')
 const INVOICE_NUMBER = '26322000004144614676'
 
 let pass = 0, fail = 0
