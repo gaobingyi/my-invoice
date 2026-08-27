@@ -348,4 +348,4 @@ docker compose ps   # 全部 healthy
 - **证书续期**：CF Origin Cert 15 年一换，到期前在 Dashboard 重新生成，替换 `/opt/invoice/certs/`，`docker compose restart nginx`
 - **CF IP 段更新**：`curl https://www.cloudflare.com/ips-v4 > /opt/invoice/web/cf-allow.conf && curl https://www.cloudflare.com/ips-v6 >> /opt/invoice/web/cf-allow.conf && echo "deny all;" >> /opt/invoice/web/cf-allow.conf && docker compose restart nginx`
 - **日志**：`docker compose logs -f --tail=200 backend` / `nginx`
-- **备份（异地 Google Drive）**：跑仓库自带脚本 `scripts/backup-drive.sh`（每日 3 点 cron，见 `DEPLOY.md §7`）：`docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/tmp/invoice-backup.db'"` 拿 SQLite 一致快照，连同上传文件卷打成单个 `invoice-backup-<时间>.tar.gz`，经 rclone 上传 Google Drive 异地保存。
+- **备份（异地 MEGA）**：跑仓库自带脚本 `scripts/backup-mega.sh`（每日 3 点 cron，见 `DEPLOY.md §7`）：`docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/tmp/invoice-backup.db'"` 拿 SQLite 一致快照，连同上传文件卷打成单个 `invoice-backup-<时间>.tar.gz`，经 rclone 上传 MEGA 异地保存。

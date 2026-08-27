@@ -247,33 +247,33 @@ curl -s http://localhost:8088/api/invoices -H "Authorization: Bearer $TOKEN"   #
 
 ---
 
-## 7. 数据备份（必须）——单包打包 + Google Drive 异地容灾
+## 7. 数据备份（必须）——单包打包 + MEGA 异地容灾
 
-备份脚本 `scripts/backup-drive.sh`：**每日 3 点**把当前 SQLite DB 一致快照 + 上传文件卷打成**单个 `invoice-backup-<日期时间>.tar.gz`**（包内 `db/invoice.db` + `uploads/uploads.tar.gz`），落本地 `/opt/backup/` 并经 rclone 上传 **Google Drive** 作**异地**保存（VPS 挂掉备份仍在）。Google Drive 免费 15GB，无需信用卡，rclone 原生支持。
+备份脚本 `scripts/backup-mega.sh`：**每日 3 点**把当前 SQLite DB 一致快照 + 上传文件卷打成**单个 `invoice-backup-<日期时间>.tar.gz`**（包内 `db/invoice.db` + `uploads/uploads.tar.gz`），落本地 `/opt/backup/` 并经 rclone 上传 **MEGA** 作**异地**保存（VPS 挂掉备份仍在）。MEGA 免费约 20GB，无需信用卡，rclone 原生支持。
 
-### 7.1 一次性准备：Google Drive + rclone
+### 7.1 一次性准备：MEGA + rclone
 
-1. **准备自己的 OAuth client（必需）**：rclone 官方共享 client_id 已于 **2026 年停用**，必须自建，否则 token 会失效。步骤：
-   - Google Cloud Console → 启用 **Google Drive API** → 凭据 → 创建 OAuth 客户端 ID → 应用类型选 **Desktop app** → 得到 `client_id` / `client_secret`。
+1. **注册 MEGA 账号**：到 https://mega.io/ 注册一个免费账号，记好邮箱/密码（备份远端目录就建在这个账号下）。
 2. **宿主机装 rclone 并配 remote**：
    ```bash
    curl https://rclone.org/install.sh | sudo bash
    rclone config
    ```
-   交互向导：新建 remote → 名字 `invoice-drive` → 类型 `drive` → 填入第 1 步的 client_id/secret（要留空则用已弃用的共享 id，不推荐）→ scope 选 `full` → 按提示**浏览器授权**（VPS 无浏览器可 `rclone config reconnect invoice-drive:` 在本地机授权后回贴 token）→ 保存。
+   交互向导：新建 remote → 名字 `invoice-mega` → 类型 `mega` → 填账号邮箱、密码（开过 2FA 则按提示输验证码；否则留空跳过）→ 确认保存。
    - 配置落在宿主机 `~/.config/rclone/rclone.conf`（`chmod 600`），**只进宿主机，不进 .env / 仓库**。
-   - Google Drive 免费 15GB，对发票备份足够；备份目录默认在网盘根建 `invoice-backup`。
+   - 验证：`rclone lsd invoice-mega:` 能列目录即可。
+   - 注意：MEGA 官方对 API 频率/带宽有限流，大目录高并发同步建议降 `--transfers`/`--tpslimit`；免费额度约 20GB，对发票备份足够。
 
 ### 7.2 定时备份（cron）
 
-把 `scripts/backup-drive.sh` 部署到 VPS（`git pull` 或 `scp`）到 `/opt/invoice/scripts/`，然后宿主机 `crontab -e` 追加：
+把 `scripts/backup-mega.sh` 部署到 VPS（`git pull` 或 `scp`）到 `/opt/invoice/scripts/`，然后宿主机 `crontab -e` 追加：
 
 ```cron
-# 每天 3:12（错峰）：单包备份 DB+uploads → 本地 /opt/backup/ + 上传 Google Drive 异地
-12 3 * * * /opt/invoice/scripts/backup-drive.sh >> /var/log/invoice-backup.log 2>&1
+# 每天 3:12（错峰）：单包备份 DB+uploads → 本地 /opt/backup/ + 上传 MEGA 异地
+12 3 * * * /opt/invoice/scripts/backup-mega.sh >> /var/log/invoice-backup.log 2>&1
 ```
 
-脚本可调变量（默认值见文件头）：`BACKUP_DIR=/opt/backup`、`DRIVE_REMOTE=invoice-drive`、`DRIVE_FOLDER=invoice-backup`、`RETENTION_DAYS=30`。先手动 `bash /opt/invoice/scripts/backup-drive.sh` 跑通一次再挂 cron。
+脚本可调变量（默认值见文件头）：`BACKUP_DIR=/opt/backup`、`MEGA_REMOTE=invoice-mega`、`MEGA_FOLDER=invoice-backup`、`RETENTION_DAYS=30`。先手动 `bash /opt/invoice/scripts/backup-mega.sh` 跑通一次再挂 cron。
 
 **一致性说明**：DB 用 `sqlite3 .backup` 在线拿一致快照（WAL 模式下取到崩溃一致的数据库），再与 uploads 同包打包——两者在分钟级时间窗内对齐，业务上可接受；不在容器卷内直接 tar DB，避免复制到一半 WAL/SHM 得出损坏的第二份。
 
@@ -282,17 +282,17 @@ curl -s http://localhost:8088/api/invoices -H "Authorization: Bearer $TOKEN"   #
 ```bash
 # 本地：脚本每次跑完自动清 N 天前旧包（默认 30）
 find /opt/backup -name 'invoice-backup-*.tar.gz' -mtime +30 -delete
-# Google Drive 远端：脚本用 `rclone delete --min-age 30d --drive-use-trash=false` 永久清掉 N 天前旧文件
-# （若想保留回收站版本可去掉 --drive-use-trash=false，但回收站会占 15GB 额度，不建议长留）
+# MEGA 远端：脚本用 `rclone delete --min-age 30d` 清掉 N 天前旧文件
+# （MEGA 删除默认进回收站，rclone 对 mega 无 --drive-use-trash 类 flag；回收站占用不计入常规额度，可手动清）
 ```
 
 ### 7.4 恢复演练（重要，备份没验证=没备份）
 
-从 Google Drive 拉最近一个包，落到 `/opt/backup/restore/` 解包：
+从 MEGA 拉最近一个包，落到 `/opt/backup/restore/` 解包：
 
 ```bash
-# 1) 从 Google Drive 拉包
-rclone copy invoice-drive:invoice-backup/ /opt/backup/restore/
+# 1) 从 MEGA 拉包
+rclone copy invoice-mega:invoice-backup/ /opt/backup/restore/
 # 2) 解包
 tar xzf /opt/backup/restore/invoice-backup-2026-08-11-0312.tar.gz -C /opt/backup/restore/
 
@@ -355,7 +355,7 @@ docker load < images.tar.gz && cd /opt/invoice && docker compose up -d
 - [ ] HTTPS 已启用（Cloudflare Tunnel 或 Caddy）
 - [ ] backend/nginx 有 `restart: unless-stopped`
 - [ ] 容器加 `TZ=Asia/Shanghai`（否则 `created_at` 差 8 小时）
-- [ ] 定时备份 + Google Drive 恢复演练完成（§7，`backup-drive.sh` + cron + 一次真实恢复）
+- [ ] 定时备份 + MEGA 恢复演练完成（§7，`backup-mega.sh` + cron + 一次真实恢复）
 - [ ] 防火墙/安全组：Cloudflare Tunnel 只放行 22；Caddy 方案放行 22/80/443
 
 ---
@@ -364,7 +364,7 @@ docker load < images.tar.gz && cd /opt/invoice && docker compose up -d
 
 - **单机无高可用**：VPS 宕机即服务中断。个人/内部用可接受；需 HA 则上 K8s（超出本文范围）。
 - **LLM 依赖外网**：`opencode.ai` 不可达时 LLM 兜底失败，但上传不中断（null 保留）。
-- **备份已异地（Google Drive）**：§7 已把每日备份上传 Google Drive，VPS 整体宕机也能从 Drive 恢复。局限：免费 15GB 容量（按天粒度约存 30 天就满，需按 `RETENTION_DAYS` 及时清理）；备份**按天**粒度（最多丢一天数据）；如后续数据量大可改 R2/对象存储。
+- **备份已异地（MEGA）**：§7 已把每日备份上传 MEGA，VPS 整体宕机也能从 MEGA 恢复。局限：免费约 20GB 容量（按天粒度需按 `RETENTION_DAYS` 及时清理）；MEGA 对 API 频率/带宽有限流（大包或高并发可能较慢）；备份**按天**粒度（最多丢一天数据）；如后续数据量大可改 R2/对象存储。
 
 ---
 
