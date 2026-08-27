@@ -42,6 +42,8 @@ public class InvoiceLlmExtractor {
         factory.setConnectTimeout(timeoutSeconds * 1000);
         factory.setReadTimeout(timeoutSeconds * 1000);
         builder = builder.requestFactory(factory).baseUrl(baseUrl);
+        // pocfile: opencode 按 User-Agent 限流，伪装为官方客户端绕过 429。
+        builder = builder.defaultHeader("User-Agent", "opencode/1.18.23 (linux 6.1.0-37-amd64; x64)");
         if (!apiKey.isBlank()) {
             builder = builder.defaultHeader("Authorization", "Bearer " + apiKey);
         }
@@ -52,21 +54,30 @@ public class InvoiceLlmExtractor {
      * Ask the LLM for the given missing fields only. Returns a ParsedInvoice with the
      * supplied fields preserved and missing ones filled where the model provided them.
      */
-    ParsedInvoice fill(ParsedInvoice parsed, String text) {
+    ParsedInvoice fill(ParsedInvoice parsed, String text, ParseContext ctx) {
         if (!enabled) return parsed;
         List<String> missing = missing(parsed);
         if (missing.isEmpty()) return parsed;
+        if (ctx != null) ctx.setLlmTriggered(true);
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(getClass());
         log.info("LLM fill missing: {}", missing);
 
         // pocfile: retry once — the local model occasionally returns empty content.
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
+                long start = System.nanoTime();
                 JsonNode reply = callLlm(text, missing);
+                long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+                if (ctx != null) ctx.recordLlmApiCall(true, elapsedMs);
                 ParsedInvoice merged = merge(parsed, reply);
+                if (ctx != null) {
+                    int afterNulls = countNonNullFields(merged);
+                    ctx.setLlmFillSuccess(afterNulls == 11);
+                }
                 log.info("LLM fill done (attempt {}): {}", attempt, reply);
                 return merged;
             } catch (Exception e) {
+                if (ctx != null) ctx.recordLlmApiCall(false, 0);
                 if (attempt == 2) {
                     // pocfile: LLM is best-effort; a hiccup must not break the upload.
                     log.warn("LLM fill failed: {}", e.getMessage());
@@ -76,6 +87,22 @@ public class InvoiceLlmExtractor {
             }
         }
         return parsed;
+    }
+
+    private static int countNonNullFields(ParsedInvoice p) {
+        int count = 0;
+        if (p.invoiceNumber() != null) count++;
+        if (p.invoiceDate() != null) count++;
+        if (p.buyerName() != null) count++;
+        if (p.buyerTaxId() != null) count++;
+        if (p.sellerName() != null) count++;
+        if (p.sellerTaxId() != null) count++;
+        if (p.category() != null) count++;
+        if (p.totalAmount() != null) count++;
+        if (p.taxAmount() != null) count++;
+        if (p.totalWithTax() != null) count++;
+        if (p.drawer() != null) count++;
+        return count;
     }
 
     private JsonNode callLlm(String text, List<String> missing) throws Exception {

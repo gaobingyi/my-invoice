@@ -46,6 +46,10 @@
           <el-icon><folder-opened /></el-icon>
           <template #title>导出记录</template>
         </el-menu-item>
+        <el-menu-item index="metrics">
+          <el-icon><data-analysis /></el-icon>
+          <template #title>解析指标</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <div class="content">
@@ -77,7 +81,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { UploadFilled, Tickets, FolderOpened, Fold, Expand, UserFilled, ArrowDown } from '@element-plus/icons-vue'
+import { UploadFilled, Tickets, FolderOpened, DataAnalysis, Fold, Expand, UserFilled, ArrowDown } from '@element-plus/icons-vue'
 import { getUsername, setToken, setUsername } from './api/invoice'
 import { applyTheme } from './utils/theme'
 import ThemeToggle from './components/ThemeToggle.vue'
@@ -95,6 +99,7 @@ const isExpanded = computed(() => !collapsed.value || hoverExpand.value)
 // 菜单 index ↔ 路由前缀映射（新增菜单项只需加一行，不再写三元链）
 const MENU_ROUTES = [
   { index: 'exports', prefix: '/exports' },
+  { index: 'metrics', prefix: '/metrics' },
   { index: 'list', prefix: '/list' },
   { index: 'upload', prefix: '/upload' }
 ]

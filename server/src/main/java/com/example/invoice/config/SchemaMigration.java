@@ -53,5 +53,50 @@ public class SchemaMigration implements ApplicationRunner, Ordered {
             log.info("SchemaMigration: invoice 表缺 used_at 列，执行 ALTER TABLE 迁移");
             jdbc.execute("ALTER TABLE invoice ADD COLUMN used_at TEXT");
         }
+
+        // parsing_metrics / parsing_log 表：老库可能不存在
+        var tables = jdbc.queryForList(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('parsing_metrics','parsing_log')");
+        var tableNames = new HashSet<String>();
+        for (var row : tables) {
+            tableNames.add(String.valueOf(row.get("name")));
+        }
+        if (!tableNames.contains("parsing_metrics")) {
+            log.info("SchemaMigration: 新增 parsing_metrics 表");
+            jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS parsing_metrics (
+                  id                    INTEGER PRIMARY KEY CHECK (id = 1),
+                  uploads_total         INTEGER NOT NULL DEFAULT 0,
+                  uploads_pdf_error     INTEGER NOT NULL DEFAULT 0,
+                  regex_success         INTEGER NOT NULL DEFAULT 0,
+                  regex_failure         INTEGER NOT NULL DEFAULT 0,
+                  llm_triggered         INTEGER NOT NULL DEFAULT 0,
+                  llm_fill_success      INTEGER NOT NULL DEFAULT 0,
+                  llm_fill_failure      INTEGER NOT NULL DEFAULT 0,
+                  llm_api_success       INTEGER NOT NULL DEFAULT 0,
+                  llm_api_failure       INTEGER NOT NULL DEFAULT 0,
+                  llm_api_total_ms      INTEGER NOT NULL DEFAULT 0,
+                  llm_api_count         INTEGER NOT NULL DEFAULT 0,
+                  regex_misses_json     TEXT NOT NULL DEFAULT '{}',
+                  updated_at            TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+                )""");
+            jdbc.execute("INSERT OR IGNORE INTO parsing_metrics (id) VALUES (1)");
+        }
+        if (!tableNames.contains("parsing_log")) {
+            log.info("SchemaMigration: 新增 parsing_log 表");
+            jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS parsing_log (
+                  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                  created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                  pdf_error           INTEGER NOT NULL DEFAULT 0,
+                  regex_success       INTEGER NOT NULL DEFAULT 0,
+                  regex_missing_json  TEXT NOT NULL DEFAULT '{}',
+                  llm_triggered       INTEGER NOT NULL DEFAULT 0,
+                  llm_fill_success    INTEGER NOT NULL DEFAULT 0,
+                  llm_api_success     INTEGER NOT NULL DEFAULT 0,
+                  llm_api_failure     INTEGER NOT NULL DEFAULT 0,
+                  llm_api_ms          INTEGER NOT NULL DEFAULT 0
+                )""");
+        }
     }
 }

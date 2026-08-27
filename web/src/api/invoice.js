@@ -88,6 +88,15 @@ export function deleteExportBatch(id) {
   return http.delete(`/export-batches/${id}`)
 }
 
+/** ===== 解析指标 ===== */
+export function fetchParsingMetrics() {
+  return http.get('/metrics/parsing')
+}
+
+export function fetchParsingTrend(days = 30) {
+  return http.get('/metrics/parsing/trend', { params: { days } })
+}
+
 /** 预览/下载统一走 blob（裸 URL 带不了 Authorization header）。
  * 返回 { url, blob }：url 必须由调用方 URL.revokeObjectURL() 释放，否则 PDF 字节驻留内存。
  * 返回 blob 是为了下载场景下调用方能在 click 后立刻 revoke —— 浏览器已开始下载即可。 */

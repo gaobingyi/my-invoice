@@ -19,9 +19,11 @@ import java.util.regex.Pattern;
 public class InvoiceParser {
 
     private final InvoiceLlmExtractor llm;
+    private final ParsingMetricsService metrics;
 
-    public InvoiceParser(InvoiceLlmExtractor llm) {
+    public InvoiceParser(InvoiceLlmExtractor llm, ParsingMetricsService metrics) {
         this.llm = llm;
+        this.metrics = metrics;
     }
 
     // pocfile: PDFBox dumps this PDF so that labels cluster at the top and *values* stream out
@@ -54,13 +56,22 @@ public class InvoiceParser {
     private static final Pattern DRAWER_YEN = Pattern.compile("[¥￥][\\d,]+\\.\\d{2}\\s*([\\u4e00-\\u9fa5（）()·]{2,})");
 
     public ParsedInvoice parse(Path pdf) throws IOException {
-        String text = extractText(pdf);
+        ParseContext ctx = (metrics != null) ? new ParseContext() : null;
+        String text;
+        try {
+            text = extractText(pdf);
+        } catch (IOException e) {
+            if (ctx != null) ctx.setPdfError(true);
+            throw e;
+        }
         ParsedInvoice parsed = parseText(text);
+        if (ctx != null) metrics.recordRegexResult(parsed, ctx);
         // pocfile: regex covers the known layouts; anything it missed is asked of the local
         // LLM as a fallback. null extractor = plain constructor (unit tests).
         if (llm != null) {
-            parsed = llm.fill(parsed, text);
+            parsed = llm.fill(parsed, text, ctx);
         }
+        if (ctx != null) metrics.flush(ctx);
         return parsed;
     }
 

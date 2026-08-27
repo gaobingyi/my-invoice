@@ -13,6 +13,10 @@ server/uploads/
 server/logs/
 server/data/
 
+# ---- dev.sh 运行产物（PID + 日志）----
+.dev-*.log
+.dev-*.pid
+
 # ---- SQLite 数据库文件 ----
 *.db
 *.db-wal

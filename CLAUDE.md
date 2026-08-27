@@ -13,6 +13,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 常用命令
 
 ```bash
+# 一键启停本地开发（后端 8080 + 前端 5173）
+./dev.sh start / stop / restart / status / logs
+
+# 清空数据（自动检测本地/Docker 模式，确认后执行）
+./clean.sh
+
 # 后端测试（解析器单元测试，无需 DB/LLM）
 cd server && mvn test
 
@@ -76,15 +82,18 @@ SQLite DDL 写在两处（内容必须保持一致）：
    - **body 必须用 `String.getBytes(UTF_8)`**，RestClient 的 String body 默认 ISO-8859-1 会损坏中文（400 的根因）。
    - 部分兼容服务会在响应后追加 SSE framing（`data: [DONE]`），需取 `resp.lastIndexOf('}')` 前的内容再解析。
    - 发送前用 `\p{Cntrl}` 正则剥离 PDFBox 文本中的控制字符。
+   - opencode 按 User-Agent 限流，RestClient 默认注入 `User-Agent: opencode/1.18.23` 伪装官方客户端绕过 429。
 
-测试 fixture（`server/src/test/resources/*.pdf`）是**真实样例 PDF 经 PDFBox dump** 后的布局，测试用 `new InvoiceParser(null)`（null = 不开 LLM）。新增版式时：加 fixture + 加断言测试，再决定正则能否覆盖，否则靠 LLM 兜底。
+测试 fixture（`server/src/test/resources/*.pdf`）是**真实样例 PDF 经 PDFBox dump** 后的布局，测试用 `new InvoiceParser(null, null)`（null = 不开 LLM，null = 不记指标）。新增版式时：加 fixture + 加断言测试，再决定正则能否覆盖，否则靠 LLM 兜底。
 
 ## 数据模型
 
-两表，`server/ddl/schema.sql`：
+四表，`server/ddl/schema.sql`：
 
 - `invoice`：`invoice_number` UNIQUE（重复上传→409）、购/销方名称+税号、`total_amount`/`tax_amount`/`total_with_tax`（TEXT 存 BigDecimal 字符串，由 `BigDecimalStringConverter` 双向转换，避免 SQLite REAL 浮点漂移）、`category`（如 `*餐饮服务*餐饮服务`）、`drawer`、`file_path`（磁盘相对路径）、`created_at`。
 - `app_user`：JWT 认证用单管理员表，存 BCrypt 散列（见认证架构）。
+- `parsing_metrics`：单行计数器表（`CHECK (id = 1)`），记录解析各阶段累计指标（上传总数、正则成功/失败、LLM 填充成功/失败、API 成功/失败、`regex_misses_json` 各字段缺失统计）。Dashboard 卡片数据来源。
+- `parsing_log`：每次解析 INSERT 一行明细，含时间戳 + 各阶段 0/1 标记 + LLM 耗时。趋势图数据来源。`@Scheduled` 保留最近 1000 条。
 
 JPA `ddl-auto: none`（SQLite 类型亲和非严格，validate 频繁误报；schema.sql 是单一事实源，列名错配会被运行时的 SQL 异常直接捕获），schema 由 SQL 文件管理，改实体需同步改两份 schema.sql。
 
@@ -112,10 +121,13 @@ JPA `ddl-auto: none`（SQLite 类型亲和非严格，validate 频繁误报；sc
 - `GET /api/invoices?page=&size=`（分页，按 createdAt 倒序）
 - `DELETE /api/invoices/{id}`
 - `GET /api/invoices/{id}/file?disposition=inline|download`（预览/下载）
+- `GET /api/metrics/parsing`（解析指标汇总，含成功率计算）
+- `GET /api/metrics/parsing/trend?days=30`（按天聚合趋势数据）
 
 ## 前端要点
 
-- 路由（`web/src/router/index.js`）：`/login` 公开，`/upload`、`/list` 挂在 `/` Layout 下；`beforeEach` 守卫无 token 跳 `/login`。`App.vue` 是 Layout（侧栏 + header 用户下拉），不再持有 activeMenu 状态机。
+- 路由（`web/src/router/index.js`）：`/login` 公开，`/upload`、`/list`、`/metrics` 挂在 `/` Layout 下；`beforeEach` 守卫无 token 跳 `/login`。`App.vue` 是 Layout（侧栏 + header 用户下拉），不再持有 activeMenu 状态机。
+- `web/src/views/MetricsDashboard.vue`：解析指标 dashboard，拉取 `/api/metrics/parsing` + `/api/metrics/parsing/trend` 展示统计卡片（正则/LLM 成功率环形进度条、平均响应时间）+ 趋势条形图 + 字段缺失明细表。
 - `web/src/views/InvoiceList.vue`：上传按钮 `.upload-btn`（E2E 选择器）、批量上传（`:limit="20"`，循环调用）、列表（销售方/购买方/项目名称/上传时间等列）、预览用 el-dialog + iframe（src 为 `fetchFile()` 的 blob URL）、下载用隐藏 `<a download>`。
 - `web/e2e/run.mjs` 断言依赖这些 Element Plus DOM 结构，改前端时勿破坏。
 

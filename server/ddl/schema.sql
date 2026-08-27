@@ -49,3 +49,35 @@ CREATE TABLE IF NOT EXISTS export_batch_item (
 
 CREATE INDEX IF NOT EXISTS idx_export_batch_item_batch ON export_batch_item(batch_id);
 CREATE INDEX IF NOT EXISTS idx_invoice_date ON invoice(invoice_date);
+
+-- 解析指标汇总：单行计数器，id 固定为 1
+CREATE TABLE IF NOT EXISTS parsing_metrics (
+  id                    INTEGER PRIMARY KEY CHECK (id = 1),
+  uploads_total         INTEGER NOT NULL DEFAULT 0,
+  uploads_pdf_error     INTEGER NOT NULL DEFAULT 0,
+  regex_success         INTEGER NOT NULL DEFAULT 0,
+  regex_failure         INTEGER NOT NULL DEFAULT 0,
+  llm_triggered         INTEGER NOT NULL DEFAULT 0,
+  llm_fill_success      INTEGER NOT NULL DEFAULT 0,
+  llm_fill_failure      INTEGER NOT NULL DEFAULT 0,
+  llm_api_success       INTEGER NOT NULL DEFAULT 0,
+  llm_api_failure       INTEGER NOT NULL DEFAULT 0,
+  llm_api_total_ms      INTEGER NOT NULL DEFAULT 0,
+  llm_api_count         INTEGER NOT NULL DEFAULT 0,
+  regex_misses_json     TEXT    NOT NULL DEFAULT '{}',
+  updated_at            TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- 解析明细日志：每次上传一行，趋势图数据来源
+CREATE TABLE IF NOT EXISTS parsing_log (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at          TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+  pdf_error           INTEGER NOT NULL DEFAULT 0,
+  regex_success       INTEGER NOT NULL DEFAULT 0,
+  regex_missing_json  TEXT    NOT NULL DEFAULT '{}',
+  llm_triggered       INTEGER NOT NULL DEFAULT 0,
+  llm_fill_success    INTEGER NOT NULL DEFAULT 0,
+  llm_api_success     INTEGER NOT NULL DEFAULT 0,
+  llm_api_failure     INTEGER NOT NULL DEFAULT 0,
+  llm_api_ms          INTEGER NOT NULL DEFAULT 0
+);

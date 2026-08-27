@@ -13,7 +13,7 @@ class InvoiceParserTest {
     // pocfile: fixture is the real sample PDF dumped through PDFBox (the same path production
     // uses), so the regex is exercised against the actual PDFBox token layout, not a hand-typed
     // approximation that drifts from it.
-    private final InvoiceParser parser = new InvoiceParser(null);
+    private final InvoiceParser parser = new InvoiceParser(null, null);
 
     private ParsedInvoice parseSample() throws Exception {
         Path pdf = Path.of(getClass().getClassLoader().getResource("sample.pdf").toURI());
