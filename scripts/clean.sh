@@ -2,7 +2,8 @@
 # 清空数据：数据库 + 上传文件（本地开发 或 Docker 部署）
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+# 脚本在 scripts/ 下，仓库根 = 脚本目录的上一级
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # 检测运行模式
 if command -v docker &>/dev/null && docker compose ps --status running 2>/dev/null | grep -q backend; then
@@ -39,7 +40,7 @@ else
     # 停服务
     if [ -f "$ROOT/.dev-backend.pid" ] && kill -0 "$(cat "$ROOT/.dev-backend.pid")" 2>/dev/null; then
         echo -n "停止后端... "
-        bash "$ROOT/dev.sh" stop 2>/dev/null
+        bash "$ROOT/scripts/dev.sh" stop 2>/dev/null
         sleep 1
         echo "已停止"
     fi
@@ -58,5 +59,5 @@ else
 
     # 重启服务
     echo -n "重启服务... "
-    bash "$ROOT/dev.sh" start
+    bash "$ROOT/scripts/dev.sh" start
 fi

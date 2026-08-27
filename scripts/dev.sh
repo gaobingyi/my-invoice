@@ -2,7 +2,8 @@
 # 本地开发启停脚本：后端 8080 + 前端 5173
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+# 脚本在 scripts/ 下，仓库根 = 脚本目录的上一级
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_PID_FILE="$ROOT/.dev-backend.pid"
 FRONTEND_PID_FILE="$ROOT/.dev-frontend.pid"
 BACKEND_LOG="$ROOT/.dev-backend.log"

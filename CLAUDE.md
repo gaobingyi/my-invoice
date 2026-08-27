@@ -14,10 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # 一键启停本地开发（后端 8080 + 前端 5173）
-./dev.sh start / stop / restart / status / logs
+./scripts/dev.sh start / stop / restart / status / logs
 
 # 清空数据（自动检测本地/Docker 模式，确认后执行）
-./clean.sh
+./scripts/clean.sh
 
 # 后端测试（解析器单元测试，无需 DB/LLM）
 cd server && mvn test
@@ -39,6 +39,9 @@ docker compose up -d --build            # 构建+启动，对外端口 8088
 docker compose logs -f backend
 docker compose ps                       # 看 healthy 状态
 docker compose down -v                  # 停止+清卷
+
+# 异地备份（VPS 上跑）：每日 3 点把 DB+uploads 打成单包传 Cloudflare R2，见 scripts/backup-r2.sh + DEPLOY.md §7
+bash scripts/backup-r2.sh
 ```
 
 ### 环境前置

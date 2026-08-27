@@ -247,51 +247,69 @@ curl -s http://localhost:8088/api/invoices -H "Authorization: Bearer $TOKEN"   #
 
 ---
 
-## 7. 数据备份（必须）
+## 7. 数据备份（必须）——单包打包 + Cloudflare R2 异地容灾
 
-### 7.1 SQLite + 上传文件定时备份（cron）
+备份脚本 `scripts/backup-r2.sh`：**每日 3 点**把当前 SQLite DB 一致快照 + 上传文件卷打成**单个 `invoice-backup-<日期时间>.tar.gz`**（包内 `db/invoice.db` + `uploads/uploads.tar.gz`），落本地 `/opt/backup/` 并经 rclone 上传 R2 作**异地**保存（VPS 挂掉备份仍在）。
 
-```bash
-crontab -e
-```
+### 7.1 一次性准备：R2 + rclone
+
+1. **R2 bucket**：Cloudflare Dashboard → R2 → Create bucket，命名 `invoice-backup`（可绑自定义域名用于公网校验，不绑也行）。创建 R2 API Token（权限读写），得 `account_id` / `access_key_id` / `access_key_secret`。
+2. **宿主机装 rclone 并配 remote**：
+   ```bash
+   curl https://rclone.org/install.sh | sudo bash
+   rclone config            # 新建 S3 remote，provider 选 Cloudflare，填上面的三组值
+   ```
+   配置落在宿主机 `~/.config/rclone/rclone.conf`（`chmod 600`），**只进宿主机，不进 .env / 仓库**。后续脚本里 remote 名默认 `invoice-r2`。
+
+### 7.2 定时备份（cron）
+
+把 `scripts/backup-r2.sh` 部署到 VPS（`git pull` 或 `scp`）到 `/opt/invoice/scripts/`，然后宿主机 `crontab -e` 追加：
 
 ```cron
-# 每天 3 点：在线备份 SQLite（WAL 模式下 .backup 仍能拿到一致快照），
-# 并对上传文件卷做 tar 归档。SQLite 文件存于 backend-db 命名卷内的 /app/data/。
-0 3 * * * docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/app/data/backup-$(date +\%F).db'" && docker cp invoice-backend:/app/data/backup-$(date +\%F).db /opt/backup/
-0 3 * * * docker run --rm -v invoice-manager_backend-data:/data -v /opt/backup:/backup alpine tar czf /backup/uploads-$(date +\%F).tar.gz /data
+# 每天 3:12（错峰）：单包备份 DB+uploads → 本地 /opt/backup/ + 上传 R2 异地
+12 3 * * * /opt/invoice/scripts/backup-r2.sh >> /var/log/invoice-backup.log 2>&1
 ```
 
-> `sqlite3` CLI 镜像里默认没有。本方案假设已在 backend 镜像装好（生产建议加一行 `RUN apk add --no-cache sqlite` 进 `server/Dockerfile`；如未装，备选 `cp` 路径见下）。
+脚本可调变量（默认值见文件头）：`BACKUP_DIR=/opt/backup`、`R2_REMOTE=invoice-r2`、`R2_BUCKET=invoice-backup`、`RETENTION_DAYS=30`。先手动 `bash /opt/invoice/scripts/backup-r2.sh` 跑通一次再挂 cron。
 
-**备选（无 sqlite3 CLI）**：直接 cp 主 DB 文件——WAL 模式下需先让 SQLite 跑一次 checkpoint，否则可能丢最后一次事务：
+**一致性说明**：DB 用 `sqlite3 .backup` 在线拿一致快照（WAL 模式下取到崩溃一致的数据库），再与 uploads 同包打包——两者在分钟级时间窗内对齐，业务上可接受；不在容器卷内直接 tar DB，避免复制到一半 WAL/SHM 得出损坏的第二份。
 
-```cron
-0 3 * * * docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/app/data/backup-$(date +\%F).db'" || docker exec invoice-backend sh -c 'sqlite3 /app/data/invoice.db "PRAGMA wal_checkpoint(TRUNCATE);"' && docker cp invoice-backend:/app/data/invoice.db /opt/backup/invoice-$(date +\%F).db
-```
-
-### 7.2 保留策略
+### 7.3 保留策略
 
 ```bash
-find /opt/backup -name "*.db" -mtime +30 -delete       # 保留 30 天的 DB 备份
-find /opt/backup -name "uploads-*.tar.gz" -mtime +30 -delete
+# 本地：脚本每次跑完自动清 N 天前旧包（默认 30）
+find /opt/backup -name 'invoice-backup-*.tar.gz' -mtime +30 -delete
+# R2 远端：脚本用 `rclone delete --min-age 30d` 清；或改在 R2 控制台配 Lifecycle Rule 按前缀过期
 ```
 
-### 7.3 恢复演练（重要，备份没验证=没备份）
+### 7.4 恢复演练（重要，备份没验证=没备份）
+
+从 R2 拉最近一个包，落到 `/opt/backup/restore/` 解包：
 
 ```bash
-# 停 backend（防 SQLite 锁冲突）
-docker compose stop backend
+# 1) 从 R2 拉包
+rclone copy invoice-r2:invoice-backup/ /opt/backup/restore/
+# 2) 解包
+tar xzf /opt/backup/restore/invoice-backup-2026-08-11-0312.tar.gz -C /opt/backup/restore/
 
-# 恢复 DB：把备份文件 cp 进 backend-db 命名卷
-docker cp /opt/backup/invoice-2026-08-11.db invoice-backend:/app/data/invoice.db
+# 3) 停 backend（防 SQLite 锁冲突），在 compose 目录执行
+cd /opt/invoice && docker compose stop backend
+
+# 4) 恢复 DB 快照进 backend-db 命名卷
+docker cp /opt/backup/restore/db/invoice.db invoice-backend:/app/data/invoice.db
 # 如有 WAL/SHM 残留，一并清掉
 docker exec invoice-backend sh -c 'rm -f /app/data/invoice.db-wal /app/data/invoice.db-shm'
 
-# 恢复上传文件
-docker run --rm -v invoice-manager_backend-data:/data -v /opt/backup:/backup alpine tar xzf /backup/uploads-2026-08-11.tar.gz -C /
+# 5) 恢复上传文件进 backend-data 命名卷
+#    包内 uploads/uploads.tar.gz 是上传文件卷的嵌套 tar，先解出再覆盖进数据卷
+mkdir -p /opt/backup/restore/uploads_extract
+tar xzf /opt/backup/restore/uploads/uploads.tar.gz -C /opt/backup/restore/uploads_extract
+docker run --rm \
+  -v /opt/backup/restore/uploads_extract:/in \
+  -v invoice-manager_backend-data:/data \
+  alpine sh -c 'rm -rf /data/* && cp -a /in/* /data/'
 
-# 起 backend
+# 6) 起 backend
 docker compose start backend
 ```
 
@@ -333,7 +351,7 @@ docker load < images.tar.gz && cd /opt/invoice && docker compose up -d
 - [ ] HTTPS 已启用（Cloudflare Tunnel 或 Caddy）
 - [ ] backend/nginx 有 `restart: unless-stopped`
 - [ ] 容器加 `TZ=Asia/Shanghai`（否则 `created_at` 差 8 小时）
-- [ ] 定时备份 + 恢复演练完成
+- [ ] 定时备份 + R2 恢复演练完成（§7，`backup-r2.sh` + cron + 一次真实恢复）
 - [ ] 防火墙/安全组：Cloudflare Tunnel 只放行 22；Caddy 方案放行 22/80/443
 
 ---
@@ -342,7 +360,7 @@ docker load < images.tar.gz && cd /opt/invoice && docker compose up -d
 
 - **单机无高可用**：VPS 宕机即服务中断。个人/内部用可接受；需 HA 则上 K8s（超出本文范围）。
 - **LLM 依赖外网**：`opencode.ai` 不可达时 LLM 兜底失败，但上传不中断（null 保留）。
-- **备份是 crontab 非异地**：VPS 挂掉备份同在机上。重要数据应异地同步（如 `rclone` 到对象存储）。
+- **备份已异地（R2）**：§7 已把每日备份上传 Cloudflare R2，VPS 整体宕机也能从 R2 恢复。局限是备份**按天**粒度（最多丢一天数据）；若需更高 RPO 可加密到小时级别。
 
 ---
 

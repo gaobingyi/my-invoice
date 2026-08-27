@@ -348,4 +348,4 @@ docker compose ps   # 全部 healthy
 - **证书续期**：CF Origin Cert 15 年一换，到期前在 Dashboard 重新生成，替换 `/opt/invoice/certs/`，`docker compose restart nginx`
 - **CF IP 段更新**：`curl https://www.cloudflare.com/ips-v4 > /opt/invoice/web/cf-allow.conf && curl https://www.cloudflare.com/ips-v6 >> /opt/invoice/web/cf-allow.conf && echo "deny all;" >> /opt/invoice/web/cf-allow.conf && docker compose restart nginx`
 - **日志**：`docker compose logs -f --tail=200 backend` / `nginx`
-- **备份**：SQLite 在线（生产建议 backend 镜像加装 `sqlite3` CLI）：`docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/app/data/backup-$(date +%F).db'" && docker cp invoice-backend:/app/data/backup-$(date +%F).db /opt/backup/`。上传文件卷：`docker run --rm -v invoice-manager_backend-data:/data -v /opt/backup:/backup alpine tar czf /backup/uploads-$(date +%F).tar.gz /data`
+- **备份（异地 R2）**：跑仓库自带脚本 `scripts/backup-r2.sh`（每日 3 点 cron，见 `DEPLOY.md §7`）：`docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/tmp/invoice-backup.db'"` 拿 SQLite 一致快照，连同上传文件卷打成单个 `invoice-backup-<时间>.tar.gz`，经 rclone 上传 Cloudflare R2 异地保存。
