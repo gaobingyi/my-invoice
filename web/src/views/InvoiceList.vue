@@ -25,7 +25,44 @@
         >打包下载</el-button>
       </div>
     </div>
+    <!-- 移动端：卡片列表（桌面 el-table 保持原样，e2e 断言依赖其 DOM） -->
+    <div
+      v-if="isMobile"
+      v-loading="loading"
+      class="card-list"
+    >
+      <div v-if="!rows.length" class="card-empty">暂无发票，上传 PDF 后在这里查看</div>
+      <div v-for="row in rows" :key="row.id" class="inv-card" @click="preview(row)">
+        <div class="inv-card-top">
+          <el-checkbox
+            :model-value="isSelected(row)"
+            :disabled="!!row.used"
+            @change="toggleSelect(row)"
+            @click.stop
+          />
+          <div class="inv-card-main">
+            <div class="inv-card-seller">{{ row.sellerName || '未知销售方' }}</div>
+            <div class="inv-card-meta">{{ row.invoiceNumber }} · {{ row.invoiceDate }}</div>
+          </div>
+          <div class="inv-card-side">
+            <div class="inv-card-amount">¥{{ row.totalWithTax }}</div>
+            <el-tag size="small" :type="row.used ? 'warning' : 'success'">
+              {{ row.used ? '已使用' : '未使用' }}
+            </el-tag>
+          </div>
+        </div>
+        <div class="inv-card-bottom">
+          <span class="inv-card-category">{{ row.category || '—' }}</span>
+          <span class="inv-card-actions">
+            <el-button link type="primary" @click.stop="preview(row)">预览</el-button>
+            <el-button link @click.stop="download(row)">下载</el-button>
+            <el-button link type="danger" @click.stop="confirmDelete(row)">删除</el-button>
+          </span>
+        </div>
+      </div>
+    </div>
     <el-table
+      v-else
       ref="tableRef"
       :data="rows"
       row-key="id"
@@ -40,9 +77,15 @@
       <el-table-column prop="sellerName" label="销售方" min-width="180" show-overflow-tooltip />
       <el-table-column prop="buyerName" label="购买方" min-width="180" show-overflow-tooltip />
       <el-table-column prop="category" label="项目名称" min-width="160" show-overflow-tooltip />
-      <el-table-column prop="totalAmount" label="金额" width="100" align="right" />
-      <el-table-column prop="taxAmount" label="税额" width="100" align="right" />
-      <el-table-column prop="totalWithTax" label="价税合计" width="120" align="right" />
+      <el-table-column prop="totalAmount" label="金额" width="100" align="right">
+        <template #default="{ row }">{{ withYuan(row.totalAmount) }}</template>
+      </el-table-column>
+      <el-table-column prop="taxAmount" label="税额" width="100" align="right">
+        <template #default="{ row }">{{ withYuan(row.taxAmount) }}</template>
+      </el-table-column>
+      <el-table-column prop="totalWithTax" label="价税合计" width="120" align="right">
+        <template #default="{ row }">{{ withYuan(row.totalWithTax) }}</template>
+      </el-table-column>
       <el-table-column prop="createdAt" label="上传时间" width="170">
         <template #default="{ row }">
           {{ formatTime(row.createdAt) }}
@@ -75,7 +118,7 @@
     />
   </el-card>
 
-  <el-dialog v-model="previewVisible" :title="previewTitle" width="70%" top="5vh" destroy-on-close @closed="onPreviewClosed">
+  <el-dialog v-model="previewVisible" :title="previewTitle" :width="isMobile ? '100%' : '70%'" :top="isMobile ? '0' : '5vh'" destroy-on-close @closed="onPreviewClosed">
     <div class="preview-nav">
       <el-button :icon="ArrowLeft" circle :disabled="!hasPrev" @click="goPreview(-1)" title="上一张" />
       <span class="preview-nav-label">{{ previewNavLabel }}</span>
@@ -84,7 +127,7 @@
     <iframe :src="previewUrl" class="preview-frame" />
   </el-dialog>
 
-  <el-dialog v-model="exportVisible" title="创建导出批次" width="420px">
+  <el-dialog v-model="exportVisible" title="创建导出批次" width="min(420px, 92%)">
     <div class="export-form">
       <div class="export-field">
         <span class="export-label">批次月份</span>
@@ -112,8 +155,10 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { listInvoices, deleteInvoice, fetchFile, errorMessage, createExportBatch } from '../api/invoice'
+import { useIsMobile } from '../composables/useIsMobile'
 
 const router = useRouter()
+const isMobile = useIsMobile()
 
 const rows = ref([])
 const total = ref(0)
@@ -152,6 +197,16 @@ function onSelectionChange(sel) {
   selected.value = sel
 }
 
+// 移动端卡片勾选（el-table 不渲染，没有 selection-change，直接维护同一份 selected）
+function isSelected(row) {
+  return selected.value.some(r => r.id === row.id)
+}
+function toggleSelect(row) {
+  const i = selected.value.findIndex(r => r.id === row.id)
+  if (i >= 0) selected.value.splice(i, 1)
+  else selected.value.push(row)
+}
+
 function openExportDialog() {
   if (!selected.value.length) return
   exportMonth.value = currentMonth()
@@ -188,6 +243,8 @@ async function load() {
     const { data } = await listInvoices(currentPage.value - 1, pageSize, used)
     rows.value = data.content
     total.value = data.totalElements
+    // 移动端卡片没有 el-table 的 selection-change 兜底，翻页/刷新后手动清空残留勾选
+    selected.value = []
   } finally {
     loading.value = false
   }
@@ -205,7 +262,24 @@ function formatTime(t) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+// 金额列统一带人民币符号（解析失败为 null 时保持空白，与移动端卡片一致）
+function withYuan(v) {
+  return v == null || v === '' ? '' : `¥${v}`
+}
+
 async function preview(row) {
+  // 移动端 iframe 不渲染 PDF：直接开新标签交给系统 PDF 查看器
+  if (isMobile.value) {
+    try {
+      const { url } = await fetchFile(row.id, 'inline')
+      window.open(url, '_blank')
+      // 新标签页加载完成前不能 revoke；给足取流时间后再释放
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch {
+      ElMessage.error('加载预览失败')
+    }
+    return
+  }
   const idx = rows.value.findIndex(r => r.id === row.id)
   await loadPreview(row, idx)
 }
@@ -376,6 +450,106 @@ watch(showUsed, () => {
   .pager {
     justify-content: center;
   }
+  /* 工具栏改为上下两行：标题行 + 批量操作行 */
+  .list-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .list-title {
+    flex-wrap: wrap;
+  }
+  .batch-actions {
+    justify-content: space-between;
+  }
+  .batch-actions .batch-export-btn {
+    flex: 1;
+  }
+}
+
+/* ===== 移动端卡片列表 ===== */
+.card-list {
+  min-height: 200px;
+}
+.card-empty {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+}
+.inv-card {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.inv-card:active {
+  background: var(--el-fill-color);
+}
+.inv-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.inv-card-top .el-checkbox {
+  height: auto;
+  margin-top: 2px;
+}
+.inv-card-main {
+  flex: 1;
+  min-width: 0;
+}
+.inv-card-seller {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inv-card-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inv-card-side {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.inv-card-amount {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-color-primary);
+  font-variant-numeric: tabular-nums;
+}
+.inv-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-left: 30px;
+}
+.inv-card-category {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inv-card-actions {
+  flex-shrink: 0;
+}
+.inv-card-actions .el-button + .el-button {
+  margin-left: 8px;
 }
 .preview-frame {
   width: 100%;
