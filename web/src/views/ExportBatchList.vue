@@ -184,7 +184,16 @@
         <span class="pdf-nav-label">{{ pdfNavLabel }}</span>
         <el-button :icon="ArrowRight" circle :disabled="!hasNext" @click="goPdf(1)" title="下一张" />
       </div>
-      <iframe :src="pdfUrl" class="pdf-frame" />
+      <!-- 桌面 iframe 原生查看器；移动端 pdf.js 内嵌渲染（移动浏览器 iframe 不渲染 PDF） -->
+      <iframe v-if="!isMobile" :src="pdfUrl" class="pdf-frame" />
+      <div v-else class="pdf-embed" v-loading="!pdfRendered" element-loading-text="加载中">
+        <VuePdfEmbed
+          v-if="pdfUrl"
+          :source="pdfUrl"
+          @rendered="pdfRendered = true"
+          @rendering-failed="onPdfRenderError"
+        />
+      </div>
     </el-dialog>
 
     <el-pagination
@@ -200,7 +209,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import {
@@ -218,6 +227,9 @@ import { useIsMobile } from '../composables/useIsMobile'
 
 const isMobile = useIsMobile()
 
+// pdf.js 体积大，异步进 chunk，只有移动端预览真正用到
+const VuePdfEmbed = defineAsyncComponent(() => import('vue-pdf-embed'))
+
 const rows = ref([])
 const total = ref(0)
 const currentPage = ref(1)
@@ -234,6 +246,7 @@ const pdfVisible = ref(false)
 const pdfUrl = ref('')
 const pdfTitle = ref('')
 const pdfIndex = ref(-1)
+const pdfRendered = ref(false)
 const hasPrev = computed(() => pdfIndex.value > 0)
 const hasNext = computed(() => pdfIndex.value >= 0 && pdfIndex.value < previewRows.value.length - 1)
 const pdfNavLabel = computed(() =>
@@ -275,20 +288,10 @@ async function goPdf(delta) {
 }
 
 async function loadPdf(row, idx) {
-  // 移动端 iframe 不渲染 PDF：直接开新标签交给系统 PDF 查看器
-  if (isMobile.value) {
-    try {
-      const { url } = await fetchFile(row.id, 'inline')
-      window.open(url, '_blank')
-      // 新标签页加载完成前不能 revoke；给足取流时间后再释放
-      setTimeout(() => URL.revokeObjectURL(url), 60000)
-    } catch {
-      ElMessage.error('加载预览失败')
-    }
-    return
-  }
   // 替换前先 revoke，避免连续预览时上一次的 blob 驻留内存
   if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value)
+  pdfUrl.value = ''
+  pdfRendered.value = false
   pdfUrl.value = ''
   try {
     const { url } = await fetchFile(row.id, 'inline')
@@ -307,6 +310,11 @@ function onPdfClosed() {
     pdfUrl.value = ''
   }
   pdfIndex.value = -1
+}
+
+function onPdfRenderError() {
+  pdfRendered.value = true
+  ElMessage.error('PDF 渲染失败')
 }
 
 function onPreviewClosed() {}
@@ -674,6 +682,24 @@ onMounted(load)
   border-radius: 8px;
   box-shadow: var(--shadow-iframe);
   background: var(--el-fill-color-lighter);
+}
+/* 移动端 pdf.js 内嵌预览：整页渲染后按容器宽度缩放，纵向滚动 + 手势缩放 */
+.pdf-embed {
+  height: 75vh;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+.pdf-embed :deep(.vue-pdf-embed) {
+  margin: 0 auto;
+}
+.pdf-embed :deep(canvas) {
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+}
+.pdf-embed :deep(.vue-pdf-embed > div) {
+  margin-bottom: 8px;
 }
 .pdf-nav {
   display: flex;

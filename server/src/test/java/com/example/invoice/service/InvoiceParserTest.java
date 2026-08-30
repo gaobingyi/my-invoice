@@ -121,4 +121,24 @@ class InvoiceParserTest {
         assertEquals(new BigDecimal("1529.00"), p.totalWithTax());
         assertEquals("岳云鹏", p.drawer());
     }
+
+    @Test
+    void parsesIndividualBusinessSeller() throws Exception {
+        // pocfile: 个体户销售方（仪征市马集镇同发烟酒商店）没有「公司」后缀，旧 NAME 正则
+        // 匹配不上，备注里「销方开户银行:江苏仪征农村商业银行股份有限公司马集支行」的银行名
+        // 会顶替销售方。名称改为与信用代码按位置配对后，银行备注行不再干扰。
+        ParsedInvoice p = parser.parse(
+                Path.of(getClass().getClassLoader().getResource("sample-yanjiushop.pdf").toURI()));
+        assertEquals("26322000006916576636", p.invoiceNumber());
+        assertEquals(LocalDate.of(2026, 8, 24), p.invoiceDate());
+        assertEquals("上海钦钦印刷科技有限公司", p.buyerName());
+        assertEquals("91310116332791646K", p.buyerTaxId());
+        assertEquals("仪征市马集镇同发烟酒商店", p.sellerName());
+        assertEquals("92321081MAD18PDY43", p.sellerTaxId());
+        assertEquals(new BigDecimal("881.19"), p.totalAmount());
+        assertEquals(new BigDecimal("8.81"), p.taxAmount());
+        assertEquals(new BigDecimal("890.00"), p.totalWithTax());
+        assertEquals("焦振荣", p.drawer());
+        assertTrue(p.category().contains("其他食品"));
+    }
 }

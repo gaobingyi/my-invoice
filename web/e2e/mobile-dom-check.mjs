@@ -60,15 +60,17 @@ check('菜单点击后跳转 /metrics', page.url().includes('/metrics'))
 check('菜单点击后抽屉关闭', !(await page.$('.el-drawer:not([style*="display: none"]) .drawer-menu')) ||
   await page.$eval('.el-overlay', el => getComputedStyle(el).display === 'none').catch(() => true))
 
-// 预览按钮触发 window.open（拦截弹窗，验证调用而非真开标签）
+// 预览：弹窗内 pdf.js 渲染出 canvas（移动端 iframe 不渲染 PDF，走内嵌预览）
 await page.goto('http://localhost:5173/list', { waitUntil: 'networkidle2' })
 await page.click('.list-title .el-switch')
 await new Promise(r => setTimeout(r, 1200))
-await page.evaluate(() => { window.__opened = null; window.open = u => { window.__opened = String(u) } })
 await page.click('.inv-card .inv-card-actions .el-button') // 预览
-await new Promise(r => setTimeout(r, 1500))
-const opened = await page.evaluate(() => window.__opened)
-check('移动端预览走 window.open(blob:)', !!opened && opened.startsWith('blob:'))
+let canvasOk = false
+try {
+  await page.waitForSelector('.el-dialog .pdf-embed canvas', { timeout: 20000 })
+  canvasOk = true
+} catch {}
+check('移动端预览弹窗内 pdf.js 渲染', canvasOk)
 
 // 弹窗宽度：导出对话框
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -32,6 +32,10 @@ public class InvoiceParser {
     // extract by value pattern + positional order rather than anchoring on a nearby label,
     // which is unreliable when label and value are separated by the column header "项目名称".
     private static final Pattern NAME = Pattern.compile("[\\u4e00-\\u9fa5（）()·]+公司");
+    // pocfile: 名称不限定「公司」结尾——个体户名称（…商店/中心/厂）匹配不上 NAME，
+    // 会轮到备注里「销方开户银行:…公司」顶替真实销售方。值流里名称紧贴其信用代码之前
+    // （购方名称→购方代码→销方名称→销方代码），故取每个代码前最近的连续中文串配对。
+    private static final Pattern CJK_RUN = Pattern.compile("[\\u4e00-\\u9fa5（）()·]{4,}");
     // pocfile: 统一社会信用代码 is 18 chars and may be all digits (914403007084608622) or
     // contain letters (91310116332791646K). The 20-digit 发票号码 differs purely by length,
     // so match exactly 15-18 chars and rely on the length, not a required letter.
@@ -96,8 +100,7 @@ public class InvoiceParser {
             }
         }
 
-        List<String> names = all(NAME, text);          // [buyer, seller] in document order
-        List<String> taxIds = all(TAX_ID, text);        // [buyer, seller] in document order
+        List<String> names = all(NAME, text);          // fallback: [buyer, seller] in document order
         // pocfile: three ¥ values appear per invoice: 金额合计, 税额合计, 价税合计, and
         // 金额 + 税额 = 价税合计 holds for both sample layouts (189.62+11.38=201.00,
         // 157.52+20.48=178.00). Solve the relation instead of assuming max=价税/min=税额:
@@ -139,16 +142,14 @@ public class InvoiceParser {
             while (dy.find()) drawer = dy.group(1);   // keep last ¥-followed CJK token
         }
 
-        String buyerName = names.size() > 0 ? names.get(0) : null;
-        String sellerName = names.size() > 1 ? names.get(1) : null;
-        // pocfile: the furniture invoice's footer carries a machine code (ALI…8 digits) that
-        // also matches the tax-id shape; drop ALI-prefixed tokens before picking the two real
-        // 统一社会信用代码 values.
-        List<String> realTax = taxIds.stream()
-                .filter(t -> !t.startsWith("ALI"))
-                .toList();
-        String buyerTax = realTax.size() > 0 ? realTax.get(0) : null;
-        String sellerTax = realTax.size() > 1 ? realTax.get(1) : null;
+        // pocfile: 名称与信用代码按位置配对（见 CJK_RUN 注释）；配不上时退回旧 NAME 列表逻辑。
+        List<TaxIdAt> taxes = realTaxIds(text);
+        String buyerName = taxes.size() > 0 ? nameBefore(text, taxes.get(0).start()) : null;
+        String sellerName = taxes.size() > 1 ? nameBefore(text, taxes.get(1).start()) : null;
+        if (buyerName == null) buyerName = names.size() > 0 ? names.get(0) : null;
+        if (sellerName == null) sellerName = names.size() > 1 ? names.get(1) : null;
+        String buyerTax = taxes.size() > 0 ? taxes.get(0).value() : null;
+        String sellerTax = taxes.size() > 1 ? taxes.get(1).value() : null;
 
         return new ParsedInvoice(number, date, buyerName, buyerTax, sellerName,
                 sellerTax, category, totalAmount, taxAmount, totalWithTax, drawer);
@@ -157,6 +158,27 @@ public class InvoiceParser {
     private static String first(Pattern p, String text) {
         Matcher m = p.matcher(text);
         return m.find() ? m.group() : null;
+    }
+
+    private record TaxIdAt(String value, int start) {}
+
+    // pocfile: 信用代码带位置收集；家具发票页脚的机器码（ALI…）也匹配代码形状，仍按前缀剔除。
+    private static List<TaxIdAt> realTaxIds(String text) {
+        List<TaxIdAt> out = new ArrayList<>();
+        Matcher m = TAX_ID.matcher(text);
+        while (m.find()) {
+            if (m.group().startsWith("ALI")) continue;
+            out.add(new TaxIdAt(m.group(), m.start()));
+        }
+        return out;
+    }
+
+    private static String nameBefore(String text, int pos) {
+        Matcher m = CJK_RUN.matcher(text);
+        m.region(0, pos);
+        String last = null;
+        while (m.find()) last = m.group();
+        return last;
     }
 
     private static List<String> all(Pattern p, String text) {
