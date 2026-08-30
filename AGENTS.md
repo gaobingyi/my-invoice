@@ -1,6 +1,6 @@
 # AGENTS.md
 
-发票管理系统（前后端分离）。上传 PDF → 解析字段 → SQLite → 列表/预览/下载/删除。详细参考 `CLAUDE.md`，本文只列容易踩坑的高信号事实。
+发票管理系统（前后端分离）。上传 PDF → 解析字段 → SQLite → 列表/预览/下载/删除，另有导出批次（`ExportController` `/api/export-batches` + `web/src/views/ExportBatchList.vue`）。详细参考 `CLAUDE.md`，本文只列容易踩坑的高信号事实。
 
 ## 布局与命令
 
@@ -13,7 +13,7 @@ cd server && mvn test                          # 单测，无需 DB/LLM
 cd server && mvn test -Dtest=InvoiceParserTest  # 单类（另有 JwtTokenServiceTest、SecurityConfigTest）
 cd server && mvn spring-boot:run               # 8080，首次启动自动建 ./data/invoice.db
 cd web && npm run dev                          # 5173，vite proxy /api → 8080
-node web/e2e/run.mjs                           # E2E：需后端+前端+Xvfb+google-chrome-stable
+node web/e2e/run.mjs                           # E2E：需后端+前端+Xvfb+google-chrome-stable；无 Xvfb 机器用 E2E_HEADLESS=1
 docker compose up -d --build                   # 两服务全镜像化（backend + nginx），对外 8088（HTTPS）
 ```
 
@@ -31,6 +31,8 @@ docker compose up -d --build                   # 两服务全镜像化（backend
 
 测试 fixture（`server/src/test/resources/*.pdf`）是真实 PDF 布局，测试用 `new InvoiceParser(null)`（null=不开 LLM）。新增版式：加 fixture + 断言，能正则则正则，否则靠 LLM。
 
+个体户销售方坑：销方名称不限定「公司」结尾（…商店/中心/厂），匹配不上 NAME 时备注里「销方开户银行:…公司」会顶替真实销售方 —— 名称与其统一社会信用代码**按位置配对**（信用代码 18 位、可能纯数字），配不上再退回旧 NAME 列表逻辑。
+
 ## 数据模型与上传
 
 - schema 由 `server/ddl/schema.sql` 管理（与 `server/src/main/resources/schema.sql` 内容一致），JPA `ddl-auto: none`（SQLite 类型亲和非严格）—— **改实体必须同步改两份 schema.sql**。
@@ -42,6 +44,7 @@ docker compose up -d --build                   # 两服务全镜像化（backend
 - 仅 `/api/auth/**` 公开（含 healthcheck `GET /api/auth/ping`），其余 `/api/**` 一律 401，直调需 `Authorization: Bearer`。登录有内存限流（`LoginRateLimiter`）。
 - **文件端点带不了 header**：前端预览/下载必须用 `fetchFile()`（axios `responseType:'blob'`→object URL），勿退回裸 URL。
 - `App.vue` 是 Layout（无 activeMenu 状态机）。`web/src/views/InvoiceList.vue` 的 `.upload-btn` 及 Element Plus DOM 结构是 `web/e2e/run.mjs` 断言依赖，改前端勿破坏。
+- PDF 预览双路径（`InvoiceList.vue` / `ExportBatchList.vue` 同构）：桌面 iframe 走浏览器原生查看器；移动端用 `vue-pdf-embed` 内嵌渲染（移动浏览器 iframe 不渲染 PDF），该组件 `defineAsyncComponent` 拆独立 chunk，勿改成静态 import。
 
 ## 部署坑
 
