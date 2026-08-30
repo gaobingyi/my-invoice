@@ -89,7 +89,22 @@
         <template #header>
           <span class="card-header">正则字段缺失明细</span>
         </template>
-        <el-table :data="fieldMisses" stripe size="small" empty-text="无缺失记录">
+        <!-- 移动端：单列缺失明细（桌面 el-table 保持原样） -->
+        <div v-if="isMobile" class="m-miss-list">
+          <div v-for="row in fieldMisses" :key="row.field" class="m-miss-row">
+            <div class="m-miss-top">
+              <span class="m-miss-label">{{ row.label }}</span>
+              <span class="m-miss-count">{{ row.count }} 次 · {{ pct(row.count, snap.uploadsTotal) }}</span>
+            </div>
+            <el-progress
+              class="m-miss-bar"
+              :percentage="Math.round(row.count / Math.max(snap.uploadsTotal, 1) * 100)"
+              :stroke-width="8"
+              :show-text="false"
+            />
+          </div>
+        </div>
+        <el-table v-else :data="fieldMisses" stripe size="small" empty-text="无缺失记录">
           <el-table-column prop="label" label="字段名" width="180" />
           <el-table-column prop="count" label="缺失次数" width="120" />
           <el-table-column label="占比" width="120">
@@ -112,6 +127,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { fetchParsingMetrics, fetchParsingTrend } from '../api/invoice'
+import { useIsMobile } from '../composables/useIsMobile'
+
+const isMobile = useIsMobile()
 
 const loading = ref(false)
 const snap = ref({})
@@ -295,4 +313,29 @@ onMounted(load)
 }
 
 .misses-card { margin-bottom: 16px; }
+
+/* 移动端字段缺失明细：单列堆叠（字段名+次数/占比 一行，占比条一行） */
+.m-miss-row {
+  padding: 8px 0;
+}
+.m-miss-row + .m-miss-row {
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.m-miss-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.m-miss-label {
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+.m-miss-count {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
 </style>

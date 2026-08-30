@@ -24,7 +24,7 @@
           <div class="upload-icon">
             <el-icon><upload-filled /></el-icon>
           </div>
-          <div class="upload-main">拖拽 PDF 到此处，或点击选择文件</div>
+          <div class="upload-main">{{ isMobile ? '点击选择 PDF 文件' : '拖拽 PDF 到此处，或点击选择文件' }}</div>
           <div class="upload-sub">支持批量选择，选择后可预览再上传</div>
         </div>
       </el-upload>
@@ -58,6 +58,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Document, Close } from '@element-plus/icons-vue'
 import { uploadInvoice, errorMessage } from '../api/invoice'
+import { useIsMobile } from '../composables/useIsMobile'
+
+const isMobile = useIsMobile()
 
 const uploading = ref(false)
 const files = ref([])
@@ -268,5 +271,11 @@ async function doUpload() {
 }
 .upload-actions .upload-btn {
   min-width: 200px;
+}
+/* 手机：上传按钮撑满，操作区更好点按 */
+@media (max-width: 768px) {
+  .upload-actions .upload-btn {
+    width: 100%;
+  }
 }
 </style>
