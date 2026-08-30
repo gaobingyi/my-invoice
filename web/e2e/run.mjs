@@ -30,6 +30,17 @@ function authHeaders() {
 // Reset DB to a clean slate before the test: delete every invoice via the API so
 // the sample PDF (fixed invoice number) can be uploaded without a 409 duplicate.
 async function resetInvoices() {
+  // 先删导出批次：被批次引用的发票 DELETE 会 400；删批次会把未删的发票恢复为未使用
+  const batchApi = 'http://localhost:5173/api/export-batches'
+  for (;;) {
+    const res = await fetch(`${batchApi}?page=0&size=20`, { headers: authHeaders() })
+    const { content } = await res.json()
+    if (!content.length) break
+    for (const b of content) {
+      const d = await fetch(`${batchApi}/${b.id}`, { method: 'DELETE', headers: authHeaders() })
+      if (!d.ok) throw new Error(`reset: delete batch ${b.id} -> ${d.status}`)
+    }
+  }
   const api = 'http://localhost:5173/api/invoices'
   for (;;) {
     const res = await fetch(`${api}?page=0&size=20`, { headers: authHeaders() })
@@ -40,7 +51,7 @@ async function resetInvoices() {
       if (!d.ok) throw new Error(`reset: delete ${r.id} -> ${d.status}`)
     }
   }
-  console.log('  DB reset (0 invoices)')
+  console.log('  DB reset (0 batches, 0 invoices)')
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -67,7 +78,8 @@ console.log('0) 清理数据库')
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,
-  headless: false,            // headed on Xvfb: real browser behaviour
+  // 默认 headed on Xvfb（真实浏览器行为）；无 Xvfb 的机器可用 E2E_HEADLESS=1 走 new headless
+  headless: process.env.E2E_HEADLESS ? 'new' : false,
   args: ['--no-sandbox', '--disable-gpu', '--window-size=1400,900']
 })
 
