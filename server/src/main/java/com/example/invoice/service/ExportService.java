@@ -112,6 +112,75 @@ public class ExportService {
         return new ArrayList<>(invoiceRepository.findAllById(invoiceIds));
     }
 
+    /** 批次编辑：向批次添加未使用发票并标记「已使用」。返回更新后的批次（count/total 已重算）。 */
+    @Transactional
+    public ExportBatch addInvoices(Long batchId, List<Long> ids) {
+        ExportBatch batch = getBatch(batchId);
+        if (ids == null || ids.isEmpty()) {
+            throw new IllegalArgumentException("请至少选择一张发票");
+        }
+        List<Long> distinct = ids.stream().distinct().toList();
+        // 跨页勾选期间被删的票容忍消失，不硬报错；全没了才拦下
+        List<Invoice> invoices = new ArrayList<>(invoiceRepository.findAllById(distinct));
+        if (invoices.isEmpty()) {
+            throw new IllegalArgumentException("所选发票均不存在（可能已被删除）");
+        }
+        List<String> inBatch = new ArrayList<>();
+        List<String> usedNumbers = new ArrayList<>();
+        for (Invoice inv : invoices) {
+            if (itemRepository.existsByBatchIdAndInvoiceId(batchId, inv.getId())) {
+                inBatch.add(inv.getInvoiceNumber());
+            } else if (Boolean.TRUE.equals(inv.getUsed())) {
+                usedNumbers.add(inv.getInvoiceNumber());
+            }
+        }
+        if (!inBatch.isEmpty()) {
+            throw new IllegalArgumentException("以下发票已在本批次中：" + String.join("、", inBatch));
+        }
+        if (!usedNumbers.isEmpty()) {
+            throw new IllegalArgumentException("以下发票已使用，不可重复打包：" + String.join("、", usedNumbers));
+        }
+        for (Invoice inv : invoices) {
+            itemRepository.save(new ExportBatchItem(batchId, inv.getId()));
+            inv.setUsed(true);
+            inv.setUsedAt(LocalDateTime.now());
+        }
+        return recalcBatch(batch);
+    }
+
+    /** 批次编辑：从批次移除一张发票；不再被其他批次引用时恢复「未使用」（同 deleteBatch）。
+     * 返回更新后的批次（count/total 已重算）。 */
+    @Transactional
+    public ExportBatch removeInvoice(Long batchId, Long invoiceId) {
+        ExportBatch batch = getBatch(batchId);
+        if (!itemRepository.existsByBatchIdAndInvoiceId(batchId, invoiceId)) {
+            throw new IllegalArgumentException("该发票不在本批次中，无法移除");
+        }
+        itemRepository.deleteByBatchIdAndInvoiceId(batchId, invoiceId);
+        if (!itemRepository.existsByInvoiceIdAndBatchIdNot(invoiceId, batchId)) {
+            invoiceRepository.findById(invoiceId).ifPresent(inv -> {
+                if (Boolean.TRUE.equals(inv.getUsed())) {
+                    inv.setUsed(false);
+                    inv.setUsedAt(null);
+                }
+            });
+        }
+        return recalcBatch(batch);
+    }
+
+    /** 按批次现存 item 重算 count/total。对应发票已删的孤儿 item 不计数（正常不会出现，
+     * InvoiceService.delete 会联动清理）。批次允许清空为 0 张。 */
+    private ExportBatch recalcBatch(ExportBatch batch) {
+        List<Invoice> invoices = batchInvoices(batch.getId());
+        BigDecimal total = invoices.stream()
+                .map(Invoice::getTotalWithTax)
+                .filter(v -> v != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        batch.setInvoiceCount(invoices.size());
+        batch.setTotalWithTax(total);
+        return batchRepository.save(batch);
+    }
+
     /** 删除批次：关联项一并删除；不再被其他批次引用的发票恢复「未使用」。
      * 返回恢复的数量（供前端提示）。 */
     @Transactional

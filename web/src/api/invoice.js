@@ -79,6 +79,16 @@ export function listBatchInvoices(batchId) {
   return http.get(`/export-batches/${batchId}/invoices`)
 }
 
+/** 批次编辑：添加未使用发票（后端标记「已使用」并重算张数/合计），返回更新后的批次。 */
+export function addBatchInvoices(batchId, ids) {
+  return http.post(`/export-batches/${batchId}/invoices`, { ids })
+}
+
+/** 批次编辑：移除一张发票（必要时恢复「未使用」），返回更新后的批次。 */
+export function removeBatchInvoice(batchId, invoiceId) {
+  return http.delete(`/export-batches/${batchId}/invoices/${invoiceId}`)
+}
+
 export async function fetchBatchZip(id) {
   const { data } = await http.get(`/export-batches/${id}/zip`, { responseType: 'blob' })
   return data

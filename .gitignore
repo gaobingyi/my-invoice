@@ -46,3 +46,6 @@ server/.idea/
 # ---- Claude Code 本机配置（权限/MCP 按机器各异，不入库）----
 .claude/settings.local.json
 server/.claude/
+
+# ---- ZCode 会话本机文件 ----
+.zcode/
