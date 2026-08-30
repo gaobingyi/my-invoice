@@ -124,7 +124,17 @@
       <span class="preview-nav-label">{{ previewNavLabel }}</span>
       <el-button :icon="ArrowRight" circle :disabled="!hasNext" @click="goPreview(1)" title="下一张" />
     </div>
-    <iframe :src="previewUrl" class="preview-frame" />
+    <!-- 桌面：iframe 走浏览器原生查看器；移动端：pdf.js 内嵌渲染（移动浏览器 iframe 不渲染 PDF，
+         丢给系统查看器的体验与下载无异） -->
+    <iframe v-if="!isMobile" :src="previewUrl" class="preview-frame" />
+    <div v-else class="pdf-embed" v-loading="!pdfRendered" element-loading-text="加载中">
+      <VuePdfEmbed
+        v-if="previewUrl"
+        :source="previewUrl"
+        @rendered="pdfRendered = true"
+        @rendering-failed="onPdfRenderError"
+      />
+    </div>
   </el-dialog>
 
   <el-dialog v-model="exportVisible" title="创建导出批次" width="min(420px, 92%)">
@@ -150,12 +160,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { listInvoices, deleteInvoice, fetchFile, errorMessage, createExportBatch } from '../api/invoice'
 import { useIsMobile } from '../composables/useIsMobile'
+
+// pdf.js 体积大，异步进 chunk，只有移动端预览真正用到
+const VuePdfEmbed = defineAsyncComponent(() => import('vue-pdf-embed'))
 
 const router = useRouter()
 const isMobile = useIsMobile()
@@ -170,6 +183,7 @@ const previewVisible = ref(false)
 const previewUrl = ref('')
 const previewTitle = ref('')
 const previewIndex = ref(-1)
+const pdfRendered = ref(false)
 const hasPrev = computed(() => previewIndex.value > 0)
 const hasNext = computed(() => previewIndex.value >= 0 && previewIndex.value < rows.value.length - 1)
 const previewNavLabel = computed(() =>
@@ -268,20 +282,13 @@ function withYuan(v) {
 }
 
 async function preview(row) {
-  // 移动端 iframe 不渲染 PDF：直接开新标签交给系统 PDF 查看器
-  if (isMobile.value) {
-    try {
-      const { url } = await fetchFile(row.id, 'inline')
-      window.open(url, '_blank')
-      // 新标签页加载完成前不能 revoke；给足取流时间后再释放
-      setTimeout(() => URL.revokeObjectURL(url), 60000)
-    } catch {
-      ElMessage.error('加载预览失败')
-    }
-    return
-  }
   const idx = rows.value.findIndex(r => r.id === row.id)
   await loadPreview(row, idx)
+}
+
+function onPdfRenderError() {
+  pdfRendered.value = true
+  ElMessage.error('PDF 渲染失败')
 }
 
 async function goPreview(delta) {
@@ -294,6 +301,7 @@ async function loadPreview(row, idx) {
   // 替换前先 revoke，避免连续预览时上一次的 blob 仍驻留内存
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
   previewUrl.value = ''
+  pdfRendered.value = false
   try {
     const { url } = await fetchFile(row.id, 'inline')
     previewUrl.value = url
@@ -558,6 +566,24 @@ watch(showUsed, () => {
   border-radius: 8px;
   box-shadow: var(--shadow-iframe);
   background: var(--el-fill-color-lighter);
+}
+/* 移动端 pdf.js 内嵌预览：整页渲染后按容器宽度缩放，纵向滚动 + 手势缩放 */
+.pdf-embed {
+  height: 75vh;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+.pdf-embed :deep(.vue-pdf-embed) {
+  margin: 0 auto;
+}
+.pdf-embed :deep(canvas) {
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+}
+.pdf-embed :deep(.vue-pdf-embed > div) {
+  margin-bottom: 8px;
 }
 .preview-nav {
   display: flex;
