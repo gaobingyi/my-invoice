@@ -27,6 +27,8 @@ public class ExportController {
 
     public record CreateBatchRequest(List<Long> ids, String batchMonth) {}
 
+    public record AddInvoicesRequest(List<Long> ids) {}
+
     /** 创建批次（标记发票已使用），返回批次记录 JSON —— 不在此处下载，
      * 前端随后跳转导出记录页手动下载，可重复。 */
     @PostMapping
@@ -44,6 +46,18 @@ public class ExportController {
     @GetMapping("/{id}/invoices")
     public List<Invoice> invoices(@PathVariable Long id) {
         return service.batchInvoices(id);
+    }
+
+    /** 批次编辑：向批次添加未使用发票（标记「已使用」，重算 count/total），返回更新后的批次。 */
+    @PostMapping("/{id}/invoices")
+    public ExportBatch addInvoices(@PathVariable Long id, @RequestBody AddInvoicesRequest req) {
+        return service.addInvoices(id, req.ids());
+    }
+
+    /** 批次编辑：从批次移除一张发票（必要时恢复「未使用」，重算 count/total），返回更新后的批次。 */
+    @DeleteMapping("/{id}/invoices/{invoiceId}")
+    public ExportBatch removeInvoice(@PathVariable Long id, @PathVariable Long invoiceId) {
+        return service.removeInvoice(id, invoiceId);
     }
 
     /** 按需重新生成 ZIP：每张票一个 PDF + 发票清单.xlsx（缺失票记入缺失清单.txt）。

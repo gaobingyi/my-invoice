@@ -24,8 +24,9 @@
           {{ formatTime(row.createdAt) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" min-width="180">
+      <el-table-column label="操作" min-width="220">
         <template #default="{ row }">
+          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openPreview(row)">预览</el-button>
           <el-button link type="primary" @click="download(row)">下载</el-button>
           <el-button link type="danger" @click="confirmDelete(row)">删除</el-button>
@@ -65,6 +66,50 @@
     </el-dialog>
 
     <el-dialog
+      v-model="editVisible"
+      :title="editTitle"
+      width="860px"
+      top="6vh"
+      destroy-on-close
+    >
+      <div v-loading="editLoading">
+        <div class="preview-summary">
+          共 {{ editRows.length }} 张 · 价税合计 ¥{{ editTotal }}
+        </div>
+        <el-table :data="editRows" stripe max-height="32vh" empty-text="批次为空，请从下方添加发票">
+          <el-table-column prop="invoiceNumber" label="发票号码" min-width="200" />
+          <el-table-column prop="invoiceDate" label="开票日期" width="110" />
+          <el-table-column prop="sellerName" label="销售方" min-width="170" show-overflow-tooltip />
+          <el-table-column prop="totalWithTax" label="价税合计" width="110" align="right" />
+          <el-table-column label="操作" width="90">
+            <template #default="{ row }">
+              <el-button link type="danger" :disabled="editLoading" @click="removeInvoice(row)">移除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="edit-add">
+          <el-select
+            v-model="selectedIds"
+            multiple
+            filterable
+            placeholder="选择要添加的未使用发票"
+            class="edit-add-select"
+          >
+            <el-option
+              v-for="inv in availableInvoices"
+              :key="inv.id"
+              :value="inv.id"
+              :label="invoiceLabel(inv)"
+            />
+          </el-select>
+          <el-button type="primary" :disabled="!selectedIds.length" :loading="adding" @click="addSelected">
+            添加选中
+          </el-button>
+        </div>
+      </div>
+    </el-dialog>
+
+    <el-dialog
       v-model="pdfVisible"
       :title="pdfTitle"
       width="70%"
@@ -99,8 +144,11 @@ import { Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import {
   listExportBatches,
   listBatchInvoices,
+  addBatchInvoices,
+  removeBatchInvoice,
   fetchBatchZip,
   deleteExportBatch,
+  listInvoices,
   fetchFile,
   errorMessage
 } from '../api/invoice'
@@ -185,6 +233,100 @@ function onPdfClosed() {
 }
 
 function onPreviewClosed() {}
+
+// ===== 批次编辑（添加/移除发票） =====
+const editVisible = ref(false)
+const editLoading = ref(false)
+const editRows = ref([])
+const editBatch = ref(null)
+const availableInvoices = ref([])
+const selectedIds = ref([])
+const adding = ref(false)
+
+const editTitle = computed(() =>
+  editBatch.value ? `编辑批次 - ${editBatch.value.batchMonth}` : '编辑批次'
+)
+const editTotal = computed(() =>
+  editRows.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0).toFixed(2)
+)
+
+function invoiceLabel(inv) {
+  return `${inv.invoiceNumber} · ${inv.sellerName || '未知销售方'} · ¥${inv.totalWithTax}`
+}
+
+/** 编辑返回的批次就地更新列表行（张数/价税合计），不整页刷新。 */
+function applyBatch(updated) {
+  if (!updated) return
+  editBatch.value = updated
+  const row = rows.value.find(r => r.id === updated.id)
+  if (row) {
+    row.invoiceCount = updated.invoiceCount
+    row.totalWithTax = updated.totalWithTax
+  }
+}
+
+async function openEdit(batch) {
+  editBatch.value = batch
+  editRows.value = []
+  selectedIds.value = []
+  availableInvoices.value = []
+  editVisible.value = true
+  editLoading.value = true
+  try {
+    // 添加候选 = 当前未使用的发票（已使用 = 已在其他批次，不可重复打包）
+    const [invoicesRes, availableRes] = await Promise.all([
+      listBatchInvoices(batch.id),
+      listInvoices(0, 100, false)
+    ])
+    editRows.value = invoicesRes.data
+    availableInvoices.value = availableRes.data.content
+  } catch (e) {
+    ElMessage.error(await errorMessage(e, '加载批次明细失败'))
+    editVisible.value = false
+  } finally {
+    editLoading.value = false
+  }
+}
+
+async function reloadEditRows() {
+  const { data } = await listBatchInvoices(editBatch.value.id)
+  editRows.value = data
+}
+
+async function addSelected() {
+  adding.value = true
+  try {
+    const { data } = await addBatchInvoices(editBatch.value.id, selectedIds.value)
+    applyBatch(data)
+    selectedIds.value = []
+    await reloadEditRows()
+    ElMessage.success('添加成功')
+  } catch (e) {
+    ElMessage.error(await errorMessage(e, '添加失败'))
+  } finally {
+    adding.value = false
+  }
+}
+
+async function removeInvoice(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认从批次移除 ${row.invoiceNumber}？该发票将恢复为未使用。`,
+      '移除确认',
+      { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  try {
+    const { data } = await removeBatchInvoice(editBatch.value.id, row.id)
+    applyBatch(data)
+    await reloadEditRows()
+    ElMessage.success('移除成功')
+  } catch (e) {
+    ElMessage.error(await errorMessage(e, '移除失败'))
+  }
+}
 
 async function load() {
   loading.value = true
@@ -303,6 +445,15 @@ onMounted(load)
   margin-bottom: 10px;
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+.edit-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.edit-add-select {
+  flex: 1;
 }
 .pdf-frame {
   width: 100%;

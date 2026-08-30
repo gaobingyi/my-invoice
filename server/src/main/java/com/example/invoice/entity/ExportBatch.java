@@ -5,7 +5,7 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/** 导出批次：一次「选票打包」的快照记录。count/total 是创建时点值，不随后续发票删除回填。 */
+/** 导出批次：一次「选票打包」的快照记录。count/total 由创建及后续编辑（添加/移除发票）按批次内现存发票重算。 */
 @Entity
 @Table(name = "export_batch")
 public class ExportBatch {
