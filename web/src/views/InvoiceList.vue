@@ -13,9 +13,9 @@
           title="刷新"
           @click="load"
         />
+        <el-switch v-model="showUsed" inline-prompt active-text="已使用" inactive-text="已使用" size="large" />
       </div>
       <div class="batch-actions">
-        <el-switch v-model="showUsed" inline-prompt active-text="已使用" inactive-text="已使用" size="large" />
         <span v-if="selected.length" class="batch-summary">已选 {{ selected.length }} 张 · ¥{{ selectedTotal }}</span>
         <el-button
           class="batch-export-btn"
@@ -319,13 +319,13 @@ watch(showUsed, () => {
 .batch-actions .el-radio-group {
   margin-right: 4px;
 }
-:deep(.batch-actions .el-switch) {
+:deep(.list-title .el-switch) {
   transform: scale(1.1);
   transform-origin: left center;
-  margin-right: 4px;
+  margin-left: 8px;
 }
 /* 开关 inline-prompt 文字：inactive 灰底上白色文字看不清，改深色 */
-:deep(.batch-actions .el-switch:not(.is-checked) .el-switch__inner-wrapper) {
+:deep(.list-title .el-switch:not(.is-checked) .el-switch__inner-wrapper) {
   color: var(--el-text-color-regular);
 }
 .batch-summary {
