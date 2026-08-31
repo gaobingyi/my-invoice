@@ -44,7 +44,6 @@ class InvoiceParserTest {
         assertEquals(new BigDecimal("189.62"), p.totalAmount());
         assertEquals(new BigDecimal("11.38"), p.taxAmount());
         assertEquals(new BigDecimal("201.00"), p.totalWithTax());
-        assertEquals("王桃桃", p.drawer());
     }
 
     @Test
@@ -61,7 +60,6 @@ class InvoiceParserTest {
         assertEquals(new BigDecimal("157.52"), p.totalAmount());
         assertEquals(new BigDecimal("20.48"), p.taxAmount());
         assertEquals(new BigDecimal("178.00"), p.totalWithTax());
-        assertEquals("黄亚雄", p.drawer());
         // pocfile: the footer machine code ALI76597… must not leak into the tax-id fields.
         assertEquals("914403007084608622", p.sellerTaxId());
         assertEquals("91310116332791646K", p.buyerTaxId());
@@ -90,9 +88,8 @@ class InvoiceParserTest {
 
     @Test
     void parsesFullWidthYenLayout() throws Exception {
-        // pocfile: 全角 ￥ 与半角 ¥ 同为合法金额符号（YEN/DRAWER_YEN 均已放宽）。
-        // 按 PDFBox 实际布局构造：标签聚顶部、值按文档序流底部；开票人不邻标签，
-        // 走 ¥ 后 CJK 令牌的兜底路径 —— 锁定全角分支防重构回归。
+        // pocfile: 全角 ￥ 与半角 ¥ 同为合法金额符号（YEN 均已放宽）。
+        // 按 PDFBox 实际布局构造：标签聚顶部、值按文档序流底部。
         ParsedInvoice p = parser.parseText("""
             发票号码：26322000004144614676
             开票日期：2026年5月26日 购买方 销售方 项目名称
@@ -103,13 +100,12 @@ class InvoiceParserTest {
         assertEquals(new BigDecimal("189.62"), p.totalAmount());
         assertEquals(new BigDecimal("11.38"), p.taxAmount());
         assertEquals(new BigDecimal("201.00"), p.totalWithTax());
-        assertEquals("王桃桃", p.drawer());
     }
 
     @Test
     void parsesYenAfterNumberInvoice() throws Exception {
         // pocfile: the Shenzhou invoice puts ¥ AFTER the figure (1353.10¥) instead of
-        // before it, and 开票人： stays adjacent to its value (岳云鹏).
+        // before it.
         ParsedInvoice p = parseShenzhou();
         assertEquals("26117000000103944900", p.invoiceNumber());
         assertEquals(LocalDate.of(2026, 3, 14), p.invoiceDate());
@@ -119,7 +115,26 @@ class InvoiceParserTest {
         assertEquals(new BigDecimal("1353.10"), p.totalAmount());
         assertEquals(new BigDecimal("175.90"), p.taxAmount());
         assertEquals(new BigDecimal("1529.00"), p.totalWithTax());
-        assertEquals("岳云鹏", p.drawer());
+    }
+
+    @Test
+    void parsesLabelAdjacentLayout() throws Exception {
+        // pocfile: 纵排标签版式（购/买/方/信/息 竖排）里标签与值直接相邻：
+        // 「名称:某某公司」+「统一社会信用代码/纳税人识别号:91…」。代码值前最近的 CJK 串
+        // 是列标签本身，旧 nameBefore 会把「纳税人识别号」当成购/销方名称 —— 已知标签串
+        // 必须跳过，取再上一个非标签中文串。
+        ParsedInvoice p = parser.parse(
+                Path.of(getClass().getClassLoader().getResource("sample-shanmu.pdf").toURI()));
+        assertEquals("26317000000172864991", p.invoiceNumber());
+        assertEquals(LocalDate.of(2026, 1, 7), p.invoiceDate());
+        assertEquals("上海钦钦印刷科技有限公司", p.buyerName());
+        assertEquals("91310116332791646K", p.buyerTaxId());
+        assertEquals("上海真如山姆超市有限公司", p.sellerName());
+        assertEquals("91310000MAC5XRQB25", p.sellerTaxId());
+        assertEquals(new BigDecimal("44.16"), p.totalAmount());
+        assertEquals(new BigDecimal("5.74"), p.taxAmount());
+        assertEquals(new BigDecimal("49.90"), p.totalWithTax());
+        assertTrue(p.category().contains("方便食品"));
     }
 
     @Test
@@ -138,7 +153,6 @@ class InvoiceParserTest {
         assertEquals(new BigDecimal("881.19"), p.totalAmount());
         assertEquals(new BigDecimal("8.81"), p.taxAmount());
         assertEquals(new BigDecimal("890.00"), p.totalWithTax());
-        assertEquals("焦振荣", p.drawer());
         assertTrue(p.category().contains("其他食品"));
     }
 }

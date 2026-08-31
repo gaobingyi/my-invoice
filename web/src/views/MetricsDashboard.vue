@@ -60,11 +60,11 @@
       </el-row>
 
       <!-- 第二行：趋势图 -->
-      <el-card shadow="hover" class="trend-card" v-if="trend.length">
+      <el-card shadow="hover" class="trend-card">
         <template #header>
           <span class="card-header">每日趋势（最近 {{ trend.length }} 天）</span>
         </template>
-        <div class="trend-chart">
+        <div class="trend-chart" v-if="trend.length">
           <div class="trend-bar-row" v-for="day in trend" :key="day.date">
             <div class="trend-date">{{ formatShortDate(day.date) }}</div>
             <div class="trend-bars">
@@ -82,6 +82,7 @@
             </div>
           </div>
         </div>
+        <el-empty v-else description="暂无趋势数据，上传发票后生成" :image-size="64" />
       </el-card>
 
       <!-- 第三行：正则字段缺失明细 -->
@@ -149,8 +150,7 @@ const FIELD_LABELS = {
   category: '项目名称',
   totalAmount: '金额合计',
   taxAmount: '税额合计',
-  totalWithTax: '价税合计',
-  drawer: '开票人'
+  totalWithTax: '价税合计'
 }
 
 const fieldMisses = computed(() => {
@@ -206,17 +206,6 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.title-dot {
-  width: 4px;
-  height: 16px;
-  border-radius: 2px;
-  background: var(--el-color-primary);
-}
-.page-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
 }
 .metrics-title .el-tag {
   background: var(--el-color-primary-light-9);

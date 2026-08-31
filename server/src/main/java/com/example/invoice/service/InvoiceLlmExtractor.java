@@ -2,6 +2,8 @@ package com.example.invoice.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -9,7 +11,6 @@ import org.springframework.web.client.RestClient;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +22,8 @@ import java.util.Map;
  */
 @Component
 public class InvoiceLlmExtractor {
+
+    private static final Logger log = LoggerFactory.getLogger(InvoiceLlmExtractor.class);
 
     private final RestClient client;
     private final ObjectMapper json;
@@ -56,10 +59,9 @@ public class InvoiceLlmExtractor {
      */
     ParsedInvoice fill(ParsedInvoice parsed, String text, ParseContext ctx) {
         if (!enabled) return parsed;
-        List<String> missing = missing(parsed);
+        List<String> missing = parsed.missingFields();
         if (missing.isEmpty()) return parsed;
         if (ctx != null) ctx.setLlmTriggered(true);
-        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(getClass());
         log.info("LLM fill missing: {}", missing);
 
         // pocfile: retry once — the local model occasionally returns empty content.
@@ -70,16 +72,14 @@ public class InvoiceLlmExtractor {
                 long elapsedMs = (System.nanoTime() - start) / 1_000_000;
                 if (ctx != null) ctx.recordLlmApiCall(true, elapsedMs);
                 ParsedInvoice merged = merge(parsed, reply);
-                if (ctx != null) {
-                    int afterNulls = countNonNullFields(merged);
-                    ctx.setLlmFillSuccess(afterNulls == 11);
-                }
+                if (ctx != null) ctx.setLlmFillSuccess(merged.missingFields().isEmpty());
                 log.info("LLM fill done (attempt {}): {}", attempt, reply);
                 return merged;
             } catch (Exception e) {
                 if (ctx != null) ctx.recordLlmApiCall(false, 0);
                 if (attempt == 2) {
                     // pocfile: LLM is best-effort; a hiccup must not break the upload.
+                    if (ctx != null) ctx.setLlmFillSuccess(false);
                     log.warn("LLM fill failed: {}", e.getMessage());
                     return parsed;
                 }
@@ -89,29 +89,13 @@ public class InvoiceLlmExtractor {
         return parsed;
     }
 
-    private static int countNonNullFields(ParsedInvoice p) {
-        int count = 0;
-        if (p.invoiceNumber() != null) count++;
-        if (p.invoiceDate() != null) count++;
-        if (p.buyerName() != null) count++;
-        if (p.buyerTaxId() != null) count++;
-        if (p.sellerName() != null) count++;
-        if (p.sellerTaxId() != null) count++;
-        if (p.category() != null) count++;
-        if (p.totalAmount() != null) count++;
-        if (p.taxAmount() != null) count++;
-        if (p.totalWithTax() != null) count++;
-        if (p.drawer() != null) count++;
-        return count;
-    }
-
     private JsonNode callLlm(String text, List<String> missing) throws Exception {
         String sys = """
             你是增值税发票信息抽取助手。从发票文本中提取字段，只输出 JSON，不要解释。
             字段说明：invoiceNumber 发票号码（20位数字）；invoiceDate 开票日期 YYYY-MM-DD；
             buyerName/buyerTaxId 购买方名称/税号；sellerName/sellerTaxId 销售方名称/税号；
             category 项目名称（*…* 开头）；totalAmount 金额合计（不含税，两位小数数字）；
-            taxAmount 税额合计；totalWithTax 价税合计；drawer 开票人。
+            taxAmount 税额合计；totalWithTax 价税合计。
             金额字段输出纯数字如 149.00，不要带货币符号和千分位。无法确定的字段输出 null。
             """;
         // pocfile: PDFBox output can carry control characters that some JSON servers reject
@@ -152,22 +136,6 @@ public class InvoiceLlmExtractor {
         return reply;
     }
 
-    private List<String> missing(ParsedInvoice p) {
-        List<String> m = new ArrayList<>();
-        if (p.invoiceNumber() == null) m.add("invoiceNumber");
-        if (p.invoiceDate() == null) m.add("invoiceDate");
-        if (p.buyerName() == null) m.add("buyerName");
-        if (p.buyerTaxId() == null) m.add("buyerTaxId");
-        if (p.sellerName() == null) m.add("sellerName");
-        if (p.sellerTaxId() == null) m.add("sellerTaxId");
-        if (p.category() == null) m.add("category");
-        if (p.totalAmount() == null) m.add("totalAmount");
-        if (p.taxAmount() == null) m.add("taxAmount");
-        if (p.totalWithTax() == null) m.add("totalWithTax");
-        if (p.drawer() == null) m.add("drawer");
-        return m;
-    }
-
     private ParsedInvoice merge(ParsedInvoice p, JsonNode j) {
         return new ParsedInvoice(
                 or(p.invoiceNumber(), j, "invoiceNumber"),
@@ -179,8 +147,7 @@ public class InvoiceLlmExtractor {
                 or(p.category(), j, "category"),
                 p.totalAmount() != null ? p.totalAmount() : decimal(j, "totalAmount"),
                 p.taxAmount() != null ? p.taxAmount() : decimal(j, "taxAmount"),
-                p.totalWithTax() != null ? p.totalWithTax() : decimal(j, "totalWithTax"),
-                or(p.drawer(), j, "drawer"));
+                p.totalWithTax() != null ? p.totalWithTax() : decimal(j, "totalWithTax"));
     }
 
     private static String or(String existing, JsonNode j, String key) {

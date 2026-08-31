@@ -30,12 +30,6 @@ public class ParsingMetricsService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json = new ObjectMapper();
 
-    /** ParsedInvoice 的 11 个字段名，用于遍历 null 检查 */
-    private static final List<String> FIELD_NAMES = List.of(
-            "invoiceNumber", "invoiceDate", "buyerName", "buyerTaxId",
-            "sellerName", "sellerTaxId", "category",
-            "totalAmount", "taxAmount", "totalWithTax", "drawer");
-
     public ParsingMetricsService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
@@ -49,21 +43,9 @@ public class ParsingMetricsService {
 
     /** 判断 ParsedInvoice 的 11 个字段是否全部非 null，并将结果写入 context。 */
     public void recordRegexResult(ParsedInvoice p, ParseContext ctx) {
-        List<String> missing = new ArrayList<>();
-        for (String field : FIELD_NAMES) {
-            if (getField(p, field) == null) {
-                missing.add(field);
-            }
-        }
+        List<String> missing = p.missingFields();
         ctx.setRegexSuccess(missing.isEmpty());
         ctx.setRegexMissingFields(missing);
-    }
-
-    /** LLM 触发后，比较 before/after 判断是否填补成功。 */
-    public void recordLlmFillResult(ParsedInvoice before, ParsedInvoice after, ParseContext ctx) {
-        int beforeNulls = countNulls(before);
-        int afterNulls = countNulls(after);
-        ctx.setLlmFillSuccess(afterNulls == 0);
     }
 
     // ────── flush：一次性写入两表 ──────
@@ -222,39 +204,6 @@ public class ParsingMetricsService {
                     json.writeValueAsString(misses));
         } catch (IOException ignored) {
         }
-    }
-
-    private static int countNulls(ParsedInvoice p) {
-        int count = 0;
-        if (p.invoiceNumber() == null) count++;
-        if (p.invoiceDate() == null) count++;
-        if (p.buyerName() == null) count++;
-        if (p.buyerTaxId() == null) count++;
-        if (p.sellerName() == null) count++;
-        if (p.sellerTaxId() == null) count++;
-        if (p.category() == null) count++;
-        if (p.totalAmount() == null) count++;
-        if (p.taxAmount() == null) count++;
-        if (p.totalWithTax() == null) count++;
-        if (p.drawer() == null) count++;
-        return count;
-    }
-
-    private static Object getField(ParsedInvoice p, String name) {
-        return switch (name) {
-            case "invoiceNumber" -> p.invoiceNumber();
-            case "invoiceDate" -> p.invoiceDate();
-            case "buyerName" -> p.buyerName();
-            case "buyerTaxId" -> p.buyerTaxId();
-            case "sellerName" -> p.sellerName();
-            case "sellerTaxId" -> p.sellerTaxId();
-            case "category" -> p.category();
-            case "totalAmount" -> p.totalAmount();
-            case "taxAmount" -> p.taxAmount();
-            case "totalWithTax" -> p.totalWithTax();
-            case "drawer" -> p.drawer();
-            default -> null;
-        };
     }
 
     private static int intVal(Map<String, Object> row, String key) {

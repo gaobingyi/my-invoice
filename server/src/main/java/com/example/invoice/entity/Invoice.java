@@ -48,9 +48,6 @@ public class Invoice {
     @Column(name = "total_with_tax", precision = 12, scale = 2)
     private BigDecimal totalWithTax;
 
-    @Column(name = "drawer", length = 64)
-    private String drawer;
-
     @Column(name = "file_path", nullable = false, length = 255)
     private String filePath;
 
@@ -92,8 +89,6 @@ public class Invoice {
     public void setTaxAmount(BigDecimal taxAmount) { this.taxAmount = taxAmount; }
     public BigDecimal getTotalWithTax() { return totalWithTax; }
     public void setTotalWithTax(BigDecimal totalWithTax) { this.totalWithTax = totalWithTax; }
-    public String getDrawer() { return drawer; }
-    public void setDrawer(String drawer) { this.drawer = drawer; }
     public String getFilePath() { return filePath; }
     public void setFilePath(String filePath) { this.filePath = filePath; }
     public Boolean getUsed() { return used; }

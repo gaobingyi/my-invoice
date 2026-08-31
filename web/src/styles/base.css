@@ -102,3 +102,70 @@ html.dark .el-table__row--striped td.el-table__cell {
   font-weight: 600;
   color: var(--el-text-color-primary);
 }
+
+/* ---- 列表页共享样式（InvoiceList / ExportBatchList 同构部分） ---- */
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.list-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.list-title .el-tag {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-color: transparent;
+  font-weight: 500;
+}
+.list-refresh { margin-left: 4px; }
+.pager {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+/* 表格外观：表头底色/加粗、单元格留白、操作列按钮间距 */
+.main .el-table,
+.mobile-main .el-table {
+  --el-table-header-bg-color: var(--el-fill-color-lighter);
+  border-radius: 8px;
+}
+.main .el-table th.el-table__cell,
+.mobile-main .el-table th.el-table__cell {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.main .el-table .cell,
+.mobile-main .el-table .cell {
+  padding: 0 12px;
+}
+.main .el-table .el-button + .el-button,
+.mobile-main .el-table .el-button + .el-button {
+  margin-left: 4px;
+}
+/* 移动端卡片列表骨架 */
+.card-list {
+  min-height: 200px;
+}
+.card-empty {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+}
+@media (max-width: 768px) {
+  .pager {
+    justify-content: center;
+  }
+  /* 工具栏改为上下两行：标题行 + 操作行 */
+  .list-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .list-title {
+    flex-wrap: wrap;
+  }
+}

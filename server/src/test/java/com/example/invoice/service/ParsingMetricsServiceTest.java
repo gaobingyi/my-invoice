@@ -73,8 +73,7 @@ class ParsingMetricsServiceTest {
                 "*餐饮服务*餐饮服务",
                 new BigDecimal("189.62"),
                 new BigDecimal("11.38"),
-                new BigDecimal("201.00"),
-                "王桃桃");
+                new BigDecimal("201.00"));
     }
 
     private static ParsedInvoice partialParsed() {
@@ -85,8 +84,7 @@ class ParsingMetricsServiceTest {
                 null,
                 new BigDecimal("189.62"),
                 new BigDecimal("11.38"),
-                new BigDecimal("201.00"),
-                null);
+                new BigDecimal("201.00"));
     }
 
     @Test
@@ -135,13 +133,11 @@ class ParsingMetricsServiceTest {
 
     @Test
     void flushLlmFillSuccess() {
-        ParsedInvoice before = partialParsed();
-        ParsedInvoice after = fullParsed();
-
         ParseContext ctx = new ParseContext();
-        service.recordRegexResult(before, ctx);
+        service.recordRegexResult(partialParsed(), ctx);
         ctx.setLlmTriggered(true);
-        service.recordLlmFillResult(before, after, ctx);
+        // 生产路径由 InvoiceLlmExtractor 在合并后按 missingFields 为空置位；这里直接置位测 flush 记账。
+        ctx.setLlmFillSuccess(true);
         ctx.recordLlmApiCall(true, 1500);
         service.flush(ctx);
 
@@ -156,13 +152,11 @@ class ParsingMetricsServiceTest {
 
     @Test
     void flushLlmFillFailure() {
-        ParsedInvoice before = partialParsed();
-        ParsedInvoice after = partialParsed(); // still partial
-
         ParseContext ctx = new ParseContext();
-        service.recordRegexResult(before, ctx);
+        service.recordRegexResult(partialParsed(), ctx);
         ctx.setLlmTriggered(true);
-        service.recordLlmFillResult(before, after, ctx);
+        // LLM 未能补齐（仍 partial）→ fillSuccess 保持 false
+        ctx.setLlmFillSuccess(false);
         ctx.recordLlmApiCall(true, 2000);
         service.flush(ctx);
 

@@ -17,25 +17,32 @@
     </div>
     <!-- 移动端：批次卡片列表 -->
     <div v-if="isMobile" v-loading="loading" class="card-list">
-      <div v-if="!rows.length" class="card-empty">暂无导出批次，在发票列表勾选后创建</div>
+      <el-empty v-if="!rows.length" description="暂无导出批次">
+        <el-button type="primary" @click="router.push('/list')">去勾选发票</el-button>
+      </el-empty>
       <div v-for="row in rows" :key="row.id" class="batch-card">
         <div class="batch-card-top" @click="openPreview(row)">
           <div class="batch-card-month">{{ row.batchMonth }}</div>
-          <div class="batch-card-total">¥{{ row.totalWithTax }}</div>
+          <div class="batch-card-total">¥{{ money(row.totalWithTax) }}</div>
         </div>
         <div class="batch-card-meta">{{ row.invoiceCount }} 张 · 导出于 {{ formatTime(row.createdAt).slice(0, 16) }}</div>
         <div class="batch-card-actions">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openPreview(row)">预览</el-button>
-          <el-button link type="primary" @click="download(row)">下载</el-button>
+          <el-button link type="primary" :loading="downloadingId === row.id" @click="download(row)">下载</el-button>
           <el-button link type="danger" @click="confirmDelete(row)">删除</el-button>
         </div>
       </div>
     </div>
-    <el-table v-else :data="rows" v-loading="loading" stripe empty-text="暂无导出批次，在发票列表勾选后创建">
+    <el-table v-else :data="rows" v-loading="loading" stripe>
+      <template #empty>
+        <el-empty description="暂无导出批次，在发票列表勾选后创建">
+          <el-button type="primary" @click="router.push('/list')">去勾选发票</el-button>
+        </el-empty>
+      </template>
       <el-table-column prop="batchMonth" label="批次月份" width="120" />
       <el-table-column prop="invoiceCount" label="张数" width="90" align="right" />
-      <el-table-column prop="totalWithTax" label="价税合计" width="130" align="right">
+      <el-table-column prop="totalWithTax" label="价税合计" width="140" align="right" class-name="col-strong">
         <template #default="{ row }">{{ withYuan(row.totalWithTax) }}</template>
       </el-table-column>
       <el-table-column prop="createdAt" label="导出时间" width="180">
@@ -47,7 +54,7 @@
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openPreview(row)">预览</el-button>
-          <el-button link type="primary" @click="download(row)">下载</el-button>
+          <el-button link type="primary" :loading="downloadingId === row.id" @click="download(row)">下载</el-button>
           <el-button link type="danger" @click="confirmDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -59,11 +66,10 @@
       width="min(860px, 94%)"
       top="6vh"
       destroy-on-close
-      @closed="onPreviewClosed"
     >
       <div v-loading="previewLoading">
         <div class="preview-summary" v-if="previewRows.length">
-          共 {{ previewRows.length }} 张 · 价税合计 ¥{{ previewTotal }}
+          共 {{ previewRows.length }} 张 · 价税合计 ¥{{ money(previewTotal) }}
         </div>
         <!-- 移动端：批次明细行列表 -->
         <div v-if="isMobile" v-loading="previewLoading" class="m-batch-rows">
@@ -74,12 +80,12 @@
               <div class="m-row-sub">{{ row.sellerName || '未知销售方' }} · {{ row.invoiceDate }}</div>
             </div>
             <div class="m-row-side">
-              <span class="m-row-amount">¥{{ row.totalWithTax }}</span>
+              <span class="m-row-amount">¥{{ money(row.totalWithTax) }}</span>
               <el-tag v-if="row.used" size="small" type="warning">已使用</el-tag>
             </div>
           </div>
         </div>
-        <el-table v-else :data="previewRows" stripe max-height="55vh">
+        <el-table v-else :data="previewRows" stripe max-height="55vh" empty-text="暂无明细">
           <el-table-column prop="invoiceNumber" label="发票号码" min-width="200">
             <template #default="{ row }">
               <el-link type="primary" :underline="false" @click="previewPdf(row)">{{ row.invoiceNumber }}</el-link>
@@ -87,10 +93,10 @@
           </el-table-column>
           <el-table-column prop="invoiceDate" label="开票日期" width="110" />
           <el-table-column prop="sellerName" label="销售方" min-width="170" show-overflow-tooltip />
-          <el-table-column prop="totalAmount" label="金额" width="100" align="right">
+          <el-table-column prop="totalAmount" label="金额" width="110" align="right">
             <template #default="{ row }">{{ withYuan(row.totalAmount) }}</template>
           </el-table-column>
-          <el-table-column prop="totalWithTax" label="价税合计" width="110" align="right">
+          <el-table-column prop="totalWithTax" label="价税合计" width="120" align="right">
             <template #default="{ row }">{{ withYuan(row.totalWithTax) }}</template>
           </el-table-column>
           <el-table-column label="状态" width="80">
@@ -111,7 +117,7 @@
     >
       <div v-loading="editLoading">
         <div class="preview-summary">
-          共 {{ editRows.length }} 张 · 价税合计 ¥{{ editTotal }}
+          共 {{ editRows.length }} 张 · 价税合计 ¥{{ money(editTotal) }}
         </div>
         <!-- 移动端：编辑批次行列表（点移除走同一 confirm 流程） -->
         <div v-if="isMobile" class="m-batch-rows">
@@ -122,7 +128,7 @@
               <div class="m-row-sub">{{ row.sellerName || '未知销售方' }} · {{ row.invoiceDate }}</div>
             </div>
             <div class="m-row-side">
-              <span class="m-row-amount">¥{{ row.totalWithTax }}</span>
+              <span class="m-row-amount">¥{{ money(row.totalWithTax) }}</span>
               <el-button link type="danger" :disabled="editLoading" @click="removeInvoice(row)">移除</el-button>
             </div>
           </div>
@@ -131,7 +137,7 @@
           <el-table-column prop="invoiceNumber" label="发票号码" min-width="200" />
           <el-table-column prop="invoiceDate" label="开票日期" width="110" />
           <el-table-column prop="sellerName" label="销售方" min-width="170" show-overflow-tooltip />
-          <el-table-column prop="totalWithTax" label="价税合计" width="110" align="right">
+          <el-table-column prop="totalWithTax" label="价税合计" width="120" align="right">
             <template #default="{ row }">{{ withYuan(row.totalWithTax) }}</template>
           </el-table-column>
           <el-table-column label="操作" width="90">
@@ -158,7 +164,7 @@
               <!-- 移动端两行显示：号码+金额 / 销售方，长销售方名截断；
                    选中后的 tag 仍用 label（完整文案，宽度由下方 CSS 约束） -->
               <template v-if="isMobile">
-                <div class="m-opt-no">{{ inv.invoiceNumber }} · ¥{{ inv.totalWithTax }}</div>
+                <div class="m-opt-no">{{ inv.invoiceNumber }} · ¥{{ money(inv.totalWithTax) }}</div>
                 <div class="m-opt-sub">{{ inv.sellerName || '未知销售方' }}</div>
               </template>
               <template v-else>{{ invoiceLabel(inv) }}</template>
@@ -171,30 +177,7 @@
       </div>
     </el-dialog>
 
-    <el-dialog
-      v-model="pdfVisible"
-      :title="pdfTitle"
-      :width="isMobile ? '100%' : '70%'"
-      :top="isMobile ? '0' : '4vh'"
-      destroy-on-close
-      @closed="onPdfClosed"
-    >
-      <div class="pdf-nav">
-        <el-button :icon="ArrowLeft" circle :disabled="!hasPrev" @click="goPdf(-1)" title="上一张" />
-        <span class="pdf-nav-label">{{ pdfNavLabel }}</span>
-        <el-button :icon="ArrowRight" circle :disabled="!hasNext" @click="goPdf(1)" title="下一张" />
-      </div>
-      <!-- 桌面 iframe 原生查看器；移动端 pdf.js 内嵌渲染（移动浏览器 iframe 不渲染 PDF） -->
-      <iframe v-if="!isMobile" :src="pdfUrl" class="pdf-frame" />
-      <div v-else class="pdf-embed" v-loading="!pdfRendered" element-loading-text="加载中">
-        <VuePdfEmbed
-          v-if="pdfUrl"
-          :source="pdfUrl"
-          @rendered="pdfRendered = true"
-          @rendering-failed="onPdfRenderError"
-        />
-      </div>
-    </el-dialog>
+    <PdfPreviewDialog ref="pdfPreviewRef" />
 
     <el-pagination
       v-if="total > 0"
@@ -209,9 +192,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
 import {
   listExportBatches,
   listBatchInvoices,
@@ -219,45 +203,37 @@ import {
   removeBatchInvoice,
   fetchBatchZip,
   deleteExportBatch,
-  listInvoices,
-  fetchFile,
+  listAllUnusedInvoices,
   errorMessage
 } from '../api/invoice'
 import { useIsMobile } from '../composables/useIsMobile'
+import { formatTime, money } from '../utils/format'
+import { saveBlob } from '../utils/download'
+import PdfPreviewDialog from '../components/PdfPreviewDialog.vue'
 
+const router = useRouter()
 const isMobile = useIsMobile()
-
-// pdf.js 体积大，异步进 chunk，只有移动端预览真正用到
-const VuePdfEmbed = defineAsyncComponent(() => import('vue-pdf-embed'))
 
 const rows = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = 20
 const loading = ref(false)
+const downloadingId = ref(null)
 
 // ===== 批次预览 =====
 const previewVisible = ref(false)
 const previewLoading = ref(false)
 const previewRows = ref([])
 const previewBatch = ref(null)
-// PDF 预览（发票号码点击进入，blob URL 需手动 revoke）
-const pdfVisible = ref(false)
-const pdfUrl = ref('')
-const pdfTitle = ref('')
-const pdfIndex = ref(-1)
-const pdfRendered = ref(false)
-const hasPrev = computed(() => pdfIndex.value > 0)
-const hasNext = computed(() => pdfIndex.value >= 0 && pdfIndex.value < previewRows.value.length - 1)
-const pdfNavLabel = computed(() =>
-  pdfIndex.value >= 0 ? `${pdfIndex.value + 1} / ${previewRows.value.length}` : ''
-)
+// PDF 预览（发票号码点击进入），状态全部在 PdfPreviewDialog 内部
+const pdfPreviewRef = ref(null)
 
 const previewTitle = computed(() =>
   previewBatch.value ? `批次预览 - ${previewBatch.value.batchMonth}（${previewBatch.value.invoiceCount} 张）` : '批次预览'
 )
 const previewTotal = computed(() =>
-  previewRows.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0).toFixed(2)
+  previewRows.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0)
 )
 
 async function openPreview(batch) {
@@ -276,48 +252,10 @@ async function openPreview(batch) {
   }
 }
 
-async function previewPdf(row) {
+function previewPdf(row) {
   const idx = previewRows.value.findIndex(r => r.id === row.id)
-  await loadPdf(row, idx)
+  pdfPreviewRef.value?.open(previewRows.value, idx)
 }
-
-async function goPdf(delta) {
-  const idx = pdfIndex.value + delta
-  if (idx < 0 || idx >= previewRows.value.length) return
-  await loadPdf(previewRows.value[idx], idx)
-}
-
-async function loadPdf(row, idx) {
-  // 替换前先 revoke，避免连续预览时上一次的 blob 驻留内存
-  if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value)
-  pdfUrl.value = ''
-  pdfRendered.value = false
-  pdfUrl.value = ''
-  try {
-    const { url } = await fetchFile(row.id, 'inline')
-    pdfUrl.value = url
-    pdfIndex.value = idx
-    pdfTitle.value = `发票预览 - ${row.invoiceNumber}`
-    pdfVisible.value = true
-  } catch {
-    ElMessage.error('加载预览失败')
-  }
-}
-
-function onPdfClosed() {
-  if (pdfUrl.value) {
-    URL.revokeObjectURL(pdfUrl.value)
-    pdfUrl.value = ''
-  }
-  pdfIndex.value = -1
-}
-
-function onPdfRenderError() {
-  pdfRendered.value = true
-  ElMessage.error('PDF 渲染失败')
-}
-
-function onPreviewClosed() {}
 
 // ===== 批次编辑（添加/移除发票） =====
 const editVisible = ref(false)
@@ -332,11 +270,11 @@ const editTitle = computed(() =>
   editBatch.value ? `编辑批次 - ${editBatch.value.batchMonth}` : '编辑批次'
 )
 const editTotal = computed(() =>
-  editRows.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0).toFixed(2)
+  editRows.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0)
 )
 
 function invoiceLabel(inv) {
-  return `${inv.invoiceNumber} · ${inv.sellerName || '未知销售方'} · ¥${inv.totalWithTax}`
+  return `${inv.invoiceNumber} · ${inv.sellerName || '未知销售方'} · ¥${money(inv.totalWithTax)}`
 }
 
 /** 编辑返回的批次就地更新列表行（张数/价税合计），不整页刷新。 */
@@ -358,13 +296,7 @@ async function openEdit(batch) {
   editVisible.value = true
   editLoading.value = true
   try {
-    // 添加候选 = 当前未使用的发票（已使用 = 已在其他批次，不可重复打包）
-    const [invoicesRes, availableRes] = await Promise.all([
-      listBatchInvoices(batch.id),
-      listInvoices(0, 100, false)
-    ])
-    editRows.value = invoicesRes.data
-    availableInvoices.value = availableRes.data.content
+    await reloadEditRows(batch.id)
   } catch (e) {
     ElMessage.error(await errorMessage(e, '加载批次明细失败'))
     editVisible.value = false
@@ -373,15 +305,16 @@ async function openEdit(batch) {
   }
 }
 
-async function reloadEditRows() {
+async function reloadEditRows(batchId) {
   // 添加/移除都会改变发票的 used 状态：批次明细和待选列表（未使用发票）必须一起刷新，
-  // 否则移除的发票不会出现在待选里、已添加的仍留在待选中
-  const [invoicesRes, availableRes] = await Promise.all([
-    listBatchInvoices(editBatch.value.id),
-    listInvoices(0, 100, false)
+  // 否则移除的发票不会出现在待选里、已添加的仍留在待选中。
+  // 待选列表翻页取全量（后端单页上限 100，硬编码单页会漏掉第 101 张之后的票）。
+  const [invoicesRes, available] = await Promise.all([
+    listBatchInvoices(batchId),
+    listAllUnusedInvoices()
   ])
   editRows.value = invoicesRes.data
-  availableInvoices.value = availableRes.data.content
+  availableInvoices.value = available
 }
 
 async function addSelected() {
@@ -390,7 +323,7 @@ async function addSelected() {
     const { data } = await addBatchInvoices(editBatch.value.id, selectedIds.value)
     applyBatch(data)
     selectedIds.value = []
-    await reloadEditRows()
+    await reloadEditRows(editBatch.value.id)
     ElMessage.success('添加成功')
   } catch (e) {
     ElMessage.error(await errorMessage(e, '添加失败'))
@@ -412,7 +345,7 @@ async function removeInvoice(row) {
   try {
     const { data } = await removeBatchInvoice(editBatch.value.id, row.id)
     applyBatch(data)
-    await reloadEditRows()
+    await reloadEditRows(editBatch.value.id)
     ElMessage.success('移除成功')
   } catch (e) {
     ElMessage.error(await errorMessage(e, '移除失败'))
@@ -435,34 +368,21 @@ function onPageChange(p) {
   load()
 }
 
-function formatTime(t) {
-  if (!t) return ''
-  const d = new Date(t)
-  const p = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
-
 // 金额列统一带人民币符号（解析失败为 null 时保持空白，与移动端卡片一致）
 function withYuan(v) {
-  return v == null || v === '' ? '' : `¥${v}`
-}
-
-/** blob → 隐藏 <a download> + 延迟 revoke（a.click() 仅异步排队下载，立即释放可能 0 字节） */
-function saveBlob(blob, filename) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  const m = money(v)
+  return m ? `¥${m}` : ''
 }
 
 async function download(row) {
+  downloadingId.value = row.id
   try {
     const blob = await fetchBatchZip(row.id)
     saveBlob(blob, `发票导出_${row.batchMonth}_${row.id}.zip`)
   } catch (e) {
     ElMessage.error(await errorMessage(e, '下载失败'))
+  } finally {
+    downloadingId.value = null
   }
 }
 
@@ -490,91 +410,16 @@ onMounted(load)
 </script>
 
 <style scoped>
-:deep(.main > div > .el-card) {
-  width: 100%;
-}
 :deep(.el-card__body) {
   padding: 16px;
 }
-.list-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-.list-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.list-title .el-tag {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  border-color: transparent;
-  font-weight: 500;
-}
-.list-refresh { margin-left: 4px; }
-.pager {
-  margin-top: 16px;
-  justify-content: flex-end;
-}
-:deep(.el-table) {
-  --el-table-header-bg-color: var(--el-fill-color-lighter);
-  border-radius: 8px;
-}
-:deep(.el-table th.el-table__cell) {
+/* 价税合计列加重 */
+:deep(.el-table .col-strong .cell) {
   font-weight: 600;
   color: var(--el-text-color-primary);
 }
-:deep(.el-table .cell) {
-  padding: 0 12px;
-}
-:deep(.el-table .el-button + .el-button) {
-  margin-left: 4px;
-}
-@media (max-width: 768px) {
-  .pager {
-    justify-content: center;
-  }
-  .list-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-  /* 编辑批次弹窗：多选与添加按钮改上下堆叠 */
-  .edit-add {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .edit-add .el-button {
-    width: 100%;
-  }
-  /* 长标签多选时保住右侧展开箭头：selection 收缩 + tag 不超出，suffix 不被挤走 */
-  .edit-add :deep(.el-select__wrapper) {
-    flex-wrap: nowrap;
-  }
-  .edit-add :deep(.el-select__selection) {
-    min-width: 0;
-    overflow: hidden;
-  }
-  .edit-add :deep(.el-select__selection .el-tag) {
-    max-width: 100%;
-  }
-  .edit-add :deep(.el-select__suffix) {
-    flex-shrink: 0;
-  }
-}
 
 /* ===== 移动端批次卡片 ===== */
-.card-list {
-  min-height: 200px;
-}
-.card-empty {
-  padding: 48px 0;
-  text-align: center;
-  color: var(--el-text-color-secondary);
-  font-size: 14px;
-}
 .batch-card {
   padding: 12px;
   border-radius: 10px;
@@ -675,44 +520,28 @@ onMounted(load)
 .edit-add-select {
   flex: 1;
 }
-.pdf-frame {
-  width: 100%;
-  height: 75vh;
-  border: none;
-  border-radius: 8px;
-  box-shadow: var(--shadow-iframe);
-  background: var(--el-fill-color-lighter);
-}
-/* 移动端 pdf.js 内嵌预览：整页渲染后按容器宽度缩放，纵向滚动 + 手势缩放 */
-.pdf-embed {
-  height: 75vh;
-  overflow: auto;
-  border-radius: 8px;
-  background: var(--el-fill-color-lighter);
-}
-.pdf-embed :deep(.vue-pdf-embed) {
-  margin: 0 auto;
-}
-.pdf-embed :deep(canvas) {
-  display: block;
-  width: 100% !important;
-  height: auto !important;
-}
-.pdf-embed :deep(.vue-pdf-embed > div) {
-  margin-bottom: 8px;
-}
-.pdf-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-bottom: 10px;
-}
-.pdf-nav-label {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  min-width: 60px;
-  text-align: center;
+@media (max-width: 768px) {
+  .edit-add {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .edit-add .el-button {
+    width: 100%;
+  }
+  /* 长标签多选时保住右侧展开箭头：selection 收缩 + tag 不超出，suffix 不被挤走 */
+  .edit-add :deep(.el-select__wrapper) {
+    flex-wrap: nowrap;
+  }
+  .edit-add :deep(.el-select__selection) {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .edit-add :deep(.el-select__selection .el-tag) {
+    max-width: 100%;
+  }
+  .edit-add :deep(.el-select__suffix) {
+    flex-shrink: 0;
+  }
 }
 </style>
 

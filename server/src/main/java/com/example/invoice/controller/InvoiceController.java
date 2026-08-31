@@ -34,8 +34,9 @@ public class InvoiceController {
     @GetMapping
     public Page<Invoice> list(@RequestParam(defaultValue = "0") int page,
                               @RequestParam(defaultValue = "20") int size,
-                              @RequestParam(required = false) Boolean used) {
-        return service.list(page, size, used);
+                              @RequestParam(required = false) Boolean used,
+                              @RequestParam(required = false) String keyword) {
+        return service.list(page, size, used, keyword);
     }
 
     @DeleteMapping("/{id}")

@@ -43,7 +43,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
-import { login, setToken, setUsername } from '../api/invoice'
+import { login, setToken, setUsername, errorMessage } from '../api/invoice'
 import ThemeToggle from '../components/ThemeToggle.vue'
 
 const router = useRouter()
@@ -68,7 +68,7 @@ async function submit() {
     setUsername(data.username)
     router.push('/upload')
   } catch (e) {
-    ElMessage.error(e.response?.data || '登录失败')
+    ElMessage.error(await errorMessage(e, '登录失败'))
   } finally {
     loading.value = false
   }

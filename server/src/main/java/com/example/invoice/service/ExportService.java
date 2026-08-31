@@ -6,6 +6,9 @@ import com.example.invoice.entity.Invoice;
 import com.example.invoice.repository.ExportBatchItemRepository;
 import com.example.invoice.repository.ExportBatchRepository;
 import com.example.invoice.repository.InvoiceRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,7 +24,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -82,21 +87,22 @@ public class ExportService {
         batch.setTotalWithTax(totalWithTax);
         batchRepository.save(batch);
 
+        LocalDateTime now = LocalDateTime.now();
+        List<ExportBatchItem> newItems = new ArrayList<>();
         for (Invoice inv : invoices) {
-            itemRepository.save(new ExportBatchItem(batch.getId(), inv.getId()));
             inv.setUsed(true);
-            inv.setUsedAt(LocalDateTime.now());
+            inv.setUsedAt(now);
+            newItems.add(new ExportBatchItem(batch.getId(), inv.getId()));
         }
+        itemRepository.saveAll(newItems);
         return batch;
     }
 
-    public org.springframework.data.domain.Page<ExportBatch> list(int page, int size) {
+    public Page<ExportBatch> list(int page, int size) {
         if (page < 0) page = 0;
         size = Math.min(Math.max(size, 1), 100);
         return batchRepository.findAll(
-                org.springframework.data.domain.PageRequest.of(page, size,
-                        org.springframework.data.domain.Sort.by(
-                                org.springframework.data.domain.Sort.Direction.DESC, "createdAt")));
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
     }
 
     public ExportBatch getBatch(Long id) {
@@ -104,12 +110,18 @@ public class ExportService {
                 .orElseThrow(() -> new IllegalArgumentException("导出批次不存在: " + id));
     }
 
-    /** 批次包含的发票，按入库顺序。已删除的票不在返回中（writeZip 会记缺失清单）。 */
+    /** 批次包含的发票，按关联条目的入库顺序（即加入批次顺序）。已删除的票不在返回中
+     * （writeZip 会记缺失清单）。注意 findAllById 不保证返回顺序，必须按 item 顺序重排。 */
     public List<Invoice> batchInvoices(Long batchId) {
         List<Long> invoiceIds = itemRepository.findByBatchId(batchId).stream()
                 .map(ExportBatchItem::getInvoiceId)
                 .toList();
-        return new ArrayList<>(invoiceRepository.findAllById(invoiceIds));
+        Map<Long, Invoice> byId = invoiceRepository.findAllById(invoiceIds).stream()
+                .collect(Collectors.toMap(Invoice::getId, Function.identity(), (a, b) -> a));
+        return invoiceIds.stream()
+                .map(byId::get)
+                .filter(v -> v != null)
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     /** 批次编辑：向批次添加未使用发票并标记「已使用」。返回更新后的批次（count/total 已重算）。 */
@@ -125,10 +137,14 @@ public class ExportService {
         if (invoices.isEmpty()) {
             throw new IllegalArgumentException("所选发票均不存在（可能已被删除）");
         }
+        // 一次查出本批次已有关联，取代逐张 exists 查询
+        Set<Long> inBatchIds = itemRepository.findByBatchId(batchId).stream()
+                .map(ExportBatchItem::getInvoiceId)
+                .collect(Collectors.toSet());
         List<String> inBatch = new ArrayList<>();
         List<String> usedNumbers = new ArrayList<>();
         for (Invoice inv : invoices) {
-            if (itemRepository.existsByBatchIdAndInvoiceId(batchId, inv.getId())) {
+            if (inBatchIds.contains(inv.getId())) {
                 inBatch.add(inv.getInvoiceNumber());
             } else if (Boolean.TRUE.equals(inv.getUsed())) {
                 usedNumbers.add(inv.getInvoiceNumber());
@@ -140,11 +156,14 @@ public class ExportService {
         if (!usedNumbers.isEmpty()) {
             throw new IllegalArgumentException("以下发票已使用，不可重复打包：" + String.join("、", usedNumbers));
         }
+        LocalDateTime now = LocalDateTime.now();
+        List<ExportBatchItem> newItems = new ArrayList<>();
         for (Invoice inv : invoices) {
-            itemRepository.save(new ExportBatchItem(batchId, inv.getId()));
             inv.setUsed(true);
-            inv.setUsedAt(LocalDateTime.now());
+            inv.setUsedAt(now);
+            newItems.add(new ExportBatchItem(batchId, inv.getId()));
         }
+        itemRepository.saveAll(newItems);
         return recalcBatch(batch);
     }
 
@@ -186,18 +205,28 @@ public class ExportService {
     @Transactional
     public int deleteBatch(Long id) {
         ExportBatch batch = getBatch(id);
-        List<ExportBatchItem> items = itemRepository.findByBatchId(id);
+        List<Long> invoiceIds = itemRepository.findByBatchId(id).stream()
+                .map(ExportBatchItem::getInvoiceId)
+                .toList();
+        // 一次查出这批发票在其他批次中的关联，取代逐条 exists 查询
+        Set<Long> referencedElsewhere = invoiceIds.isEmpty() ? Set.of()
+                : itemRepository.findByBatchIdNotAndInvoiceIdIn(id, invoiceIds).stream()
+                        .map(ExportBatchItem::getInvoiceId)
+                        .collect(Collectors.toSet());
+        // 批量取回待恢复的发票实体，取代循环内 N 次 findById；restored 仅统计实际恢复的
+        List<Long> toRestoreIds = invoiceIds.stream()
+                .filter(i -> !referencedElsewhere.contains(i))
+                .distinct()
+                .toList();
+        Map<Long, Invoice> toRestoreMap = toRestoreIds.isEmpty() ? Map.of()
+                : invoiceRepository.findAllById(toRestoreIds).stream()
+                        .collect(Collectors.toMap(Invoice::getId, Function.identity(), (a, b) -> a));
         int restored = 0;
-        for (ExportBatchItem item : items) {
-            boolean referencedElsewhere =
-                    itemRepository.existsByInvoiceIdAndBatchIdNot(item.getInvoiceId(), id);
-            if (!referencedElsewhere) {
-                invoiceRepository.findById(item.getInvoiceId()).ifPresent(inv -> {
-                    if (Boolean.TRUE.equals(inv.getUsed())) {
-                        inv.setUsed(false);
-                        inv.setUsedAt(null);
-                    }
-                });
+        for (Long invoiceId : toRestoreIds) {
+            Invoice inv = toRestoreMap.get(invoiceId);
+            if (inv != null && Boolean.TRUE.equals(inv.getUsed())) {
+                inv.setUsed(false);
+                inv.setUsedAt(null);
                 restored++;
             }
         }

@@ -81,7 +81,7 @@ SQLite DDL 写在两处（内容必须保持一致）：
    - 开票人：先试邻近标签 `开票人：`，失败再试 ¥ 后跟 CJK 令牌。
    - 文件名约定：`<销售方>_<发票号码>.<ext>`，非法字符清洗。
 
-2. **LLM 兜底** `InvoiceLlmExtractor.fill()`：正则只回填 **缺失字段**（`missing()` 列出，`merge()` 保留已有值）。失败不报错 —— null 保留、上传继续。两次尝试重试。注意点（改这里必看）：
+2. **LLM 兜底** `InvoiceLlmExtractor.fill()`：正则只回填 **缺失字段**（`ParsedInvoice.missingFields()` 列出，`merge()` 保留已有值）。失败不报错 —— null 保留、上传继续。两次尝试重试。注意点（改这里必看）：
    - **body 必须用 `String.getBytes(UTF_8)`**，RestClient 的 String body 默认 ISO-8859-1 会损坏中文（400 的根因）。
    - 部分兼容服务会在响应后追加 SSE framing（`data: [DONE]`），需取 `resp.lastIndexOf('}')` 前的内容再解析。
    - 发送前用 `\p{Cntrl}` 正则剥离 PDFBox 文本中的控制字符。

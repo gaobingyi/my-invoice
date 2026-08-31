@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -35,7 +36,6 @@ public class InvoiceService {
     private static final int MAX_TAX_ID = 20;
     private static final int MAX_NUMBER = 20;
     private static final int MAX_CATEGORY = 64;
-    private static final int MAX_DRAWER = 64;
     private static final int MAX_LIST_SIZE = 100;
 
     private final InvoiceRepository repository;
@@ -134,7 +134,6 @@ public class InvoiceService {
             inv.setTotalAmount(p.totalAmount());
             inv.setTaxAmount(p.taxAmount());
             inv.setTotalWithTax(p.totalWithTax());
-            inv.setDrawer(truncate(p.drawer(), MAX_DRAWER));
             inv.setFilePath(uploadDir.relativize(dest).toString());
 
             try {
@@ -158,16 +157,33 @@ public class InvoiceService {
         }
     }
 
-    public Page<Invoice> list(int page, int size, Boolean used) {
+    public Page<Invoice> list(int page, int size, Boolean used, String keyword) {
         // pocfile: 防 size 无上限把全表一次拉进内存；page/size 越界也钳制到合法范围。
         if (page < 0) page = 0;
         size = Math.min(Math.max(size, 1), MAX_LIST_SIZE);
         Pageable pageable = PageRequest.of(page, size,
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        if (used == null) {
+        boolean hasKeyword = keyword != null && !keyword.isBlank();
+        if (!hasKeyword && used == null) {
             return repository.findAll(pageable);
         }
-        return repository.findByUsed(used, pageable);
+        if (!hasKeyword) {
+            return repository.findByUsed(used, pageable);
+        }
+        // 关键词模糊匹配：销售方/购买方/发票号码/项目名称 任一命中（SQLite LIKE 对中文按原文匹配）
+        // LIKE 通配符转义：用户输入的 %/_ 视为字面量（分类含 * 测过，但用户仍可能搜 %/_）
+        String escaped = keyword.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        String kw = "%" + escaped + "%";
+        Specification<Invoice> spec = (root, query, cb) -> cb.or(
+                cb.like(root.get("sellerName"), kw, '\\'),
+                cb.like(root.get("buyerName"), kw, '\\'),
+                cb.like(root.get("invoiceNumber"), kw, '\\'),
+                cb.like(root.get("category"), kw, '\\')
+        );
+        if (used != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("used"), used));
+        }
+        return repository.findAll(spec, pageable);
     }
 
     public Path resolveFile(Long id) {

@@ -54,10 +54,32 @@ export function uploadInvoice(file) {
   })
 }
 
-export function listInvoices(page, size, used) {
+export function listInvoices(page, size, used, keyword) {
   const params = { page, size }
   if (used !== undefined && used !== null) params.used = used
+  if (keyword) params.keyword = keyword
   return http.get('/invoices', { params })
+}
+
+/** 拉取全部未使用发票（后端 size 上限 100，翻页取全量）。批次编辑「添加发票」下拉用。 */
+export async function listAllUnusedInvoices() {
+  const PAGE_SIZE = 100
+  const MAX_PAGES = 50 // 兜底上限，防异常响应死循环
+  const { data: first } = await listInvoices(0, PAGE_SIZE, false)
+  const all = [...first.content]
+  if (first.content.length < PAGE_SIZE) return all
+  const totalPages = first.totalPages ?? Math.ceil(first.totalElements / PAGE_SIZE)
+  if (totalPages > MAX_PAGES) {
+    console.warn(`未使用发票超过 ${MAX_PAGES * PAGE_SIZE} 张，仅加载前 ${MAX_PAGES * PAGE_SIZE} 张，请分批创建`)
+  }
+  const pagesToFetch = Math.min(totalPages - 1, MAX_PAGES - 1)
+  if (pagesToFetch <= 0) return all
+  // 并发拉取剩余页，取代原串行 50 次请求（2.7s → 单轮并发）
+  const results = await Promise.all(
+    Array.from({ length: pagesToFetch }, (_, i) => listInvoices(i + 1, PAGE_SIZE, false))
+  )
+  for (const { data } of results) all.push(...data.content)
+  return all
 }
 
 export function deleteInvoice(id) {

@@ -136,7 +136,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { UploadFilled, Tickets, FolderOpened, DataAnalysis, Fold, Expand, UserFilled, ArrowDown, Menu as MenuIcon } from '@element-plus/icons-vue'
 import { getUsername, setToken, setUsername } from './api/invoice'
@@ -152,6 +152,12 @@ const drawerVisible = ref(false)
 
 const collapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true')
 const username = ref(getUsername() || 'admin')
+
+// SPA 内登录/登出不会重挂载本组件，username 从 localStorage 读一次就不再变；
+// 登录/登出必经路由跳转，借路由变化重新读取
+watch(() => route.fullPath, () => {
+  username.value = getUsername() || 'admin'
+})
 
 const hoverExpand = ref(false)
 // 展开态 = 持久展开，或（持久收起时）鼠标悬停临时展开（flyout）

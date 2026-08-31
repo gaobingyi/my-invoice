@@ -74,16 +74,28 @@ class ExportServiceTest {
         return proxy(ExportBatchItemRepository.class, (p, m, a) -> switch (m.getName()) {
             case "findByBatchId" -> items.stream()
                     .filter(i -> i.getBatchId().equals(a[0])).toList();
+            case "findByBatchIdNotAndInvoiceIdIn" -> items.stream()
+                    .filter(i -> !i.getBatchId().equals(a[0])
+                            && ((java.util.Collection<?>) a[1]).contains(i.getInvoiceId()))
+                    .toList();
             case "existsByBatchIdAndInvoiceId" -> items.stream()
                     .anyMatch(i -> i.getBatchId().equals(a[0]) && i.getInvoiceId().equals(a[1]));
             case "deleteByBatchIdAndInvoiceId" -> {
                 items.removeIf(i -> i.getBatchId().equals(a[0]) && i.getInvoiceId().equals(a[1]));
                 yield null;
             }
+            case "deleteByBatchId" -> {
+                items.removeIf(i -> i.getBatchId().equals(a[0]));
+                yield null;
+            }
             case "existsByInvoiceIdAndBatchIdNot" -> items.stream()
                     .anyMatch(i -> i.getInvoiceId().equals(a[0]) && !i.getBatchId().equals(a[1]));
             case "save" -> {
                 items.add((ExportBatchItem) a[0]);
+                yield a[0];
+            }
+            case "saveAll" -> {
+                for (Object it : (Iterable<?>) a[0]) items.add((ExportBatchItem) it);
                 yield a[0];
             }
             default -> throw new UnsupportedOperationException(m.getName());
@@ -198,5 +210,31 @@ class ExportServiceTest {
                 () -> service.removeInvoice(7L, 2L));
         assertTrue(e.getMessage().contains("不在本批次中"), e.getMessage());
         assertFalse(Boolean.TRUE.equals(invoicesById.get(2L).getUsed()));
+    }
+
+    @Test
+    void deleteBatchRestoresOnlyInvoicesNotReferencedElsewhere() {
+        batch(7, 2, "209.00");
+        Invoice onlyHere = invoice(1, "N1", true, "100.00");
+        Invoice shared = invoice(2, "N2", true, "109.00");
+        items.add(new ExportBatchItem(7L, 1L));
+        items.add(new ExportBatchItem(7L, 2L));
+        items.add(new ExportBatchItem(8L, 2L)); // 另一批次也引用
+
+        int restored = service.deleteBatch(7L);
+
+        assertEquals(1, restored, "仅恢复未被其他批次引用的发票");
+        assertFalse(Boolean.TRUE.equals(onlyHere.getUsed()));
+        assertNull(onlyHere.getUsedAt());
+        assertTrue(Boolean.TRUE.equals(shared.getUsed()), "被其他批次引用的票保持已使用");
+        assertEquals(1, items.size(), "应只删除本批次的关联");
+        assertFalse(batchesById.containsKey(7L), "批次本身应被删除");
+    }
+
+    @Test
+    void deleteBatchWithNoItemsRestoresNothing() {
+        batch(7, 0, "0");
+        assertEquals(0, service.deleteBatch(7L));
+        assertFalse(batchesById.containsKey(7L));
     }
 }

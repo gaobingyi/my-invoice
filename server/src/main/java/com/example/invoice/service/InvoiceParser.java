@@ -28,7 +28,7 @@ public class InvoiceParser {
 
     // pocfile: PDFBox dumps this PDF so that labels cluster at the top and *values* stream out
     // at the bottom in document order (number, date, buyer-name, buyer-tax, seller-name,
-    // seller-tax, subtotals, grand-total, drawer, finally the single detail row). We therefore
+    // seller-tax, subtotals, grand-total, finally the single detail row). We therefore
     // extract by value pattern + positional order rather than anchoring on a nearby label,
     // which is unreliable when label and value are separated by the column header "项目名称".
     private static final Pattern NAME = Pattern.compile("[\\u4e00-\\u9fa5（）()·]+公司");
@@ -48,16 +48,7 @@ public class InvoiceParser {
     // detail row: "*餐饮服务*餐饮服务 6%189.62 11.38189.621" — first decimal after % is 金额,
     // the second (space-separated) is 税额; the glued trailing 合计 digits are ignored.
     private static final Pattern CATEGORY = Pattern.compile("\\*[^*]+\\*");
-    // pocfile: lines of pure CJK that could be the drawer or a company name. We filter corporate
-    // keywords in code to pick the drawer.
-    // pocfile: PDFBox reorders this layout. Two shapes seen:
-    //  - restaurant/furniture: 开票人： label sits in the label cluster, its value streams
-    //    out after the grand-total ¥ (¥201.00 王桃桃) — the last pure-CJK token after a ¥.
-    //  - Shenzhou: the label and value stay adjacent (开票人：岳云鹏).
-    // Try the adjacent label first, then the ¥-adjacent fallback.
-    private static final Pattern DRAWER_LABEL = Pattern.compile("开票人[：:]\\s*([\\u4e00-\\u9fa5（）()·]{2,})");
-    // pocfile: 与 YEN 一致，金额符号同时接受半角 ¥ 与全角 ￥。
-    private static final Pattern DRAWER_YEN = Pattern.compile("[¥￥][\\d,]+\\.\\d{2}\\s*([\\u4e00-\\u9fa5（）()·]{2,})");
+    // 金额符号同时接受半角 ¥ 与全角 ￥。
 
     public ParsedInvoice parse(Path pdf) throws IOException {
         ParseContext ctx = (metrics != null) ? new ParseContext() : null;
@@ -133,15 +124,6 @@ public class InvoiceParser {
         // restaurant invoice (*餐饮服务*), wrapped across lines in the furniture one (*家具*).
         String category = first(CATEGORY, text);
 
-        String drawer = null;
-        Matcher dl = DRAWER_LABEL.matcher(text);
-        if (dl.find()) {
-            drawer = dl.group(1);
-        } else {
-            Matcher dy = DRAWER_YEN.matcher(text);
-            while (dy.find()) drawer = dy.group(1);   // keep last ¥-followed CJK token
-        }
-
         // pocfile: 名称与信用代码按位置配对（见 CJK_RUN 注释）；配不上时退回旧 NAME 列表逻辑。
         List<TaxIdAt> taxes = realTaxIds(text);
         String buyerName = taxes.size() > 0 ? nameBefore(text, taxes.get(0).start()) : null;
@@ -152,7 +134,7 @@ public class InvoiceParser {
         String sellerTax = taxes.size() > 1 ? taxes.get(1).value() : null;
 
         return new ParsedInvoice(number, date, buyerName, buyerTax, sellerName,
-                sellerTax, category, totalAmount, taxAmount, totalWithTax, drawer);
+                sellerTax, category, totalAmount, taxAmount, totalWithTax);
     }
 
     private static String first(Pattern p, String text) {
@@ -177,8 +159,31 @@ public class InvoiceParser {
         Matcher m = CJK_RUN.matcher(text);
         m.region(0, pos);
         String last = null;
-        while (m.find()) last = m.group();
+        while (m.find()) {
+            String g = m.group();
+            // 标签与名称粘连的版式（...上海钦钦印刷科技有限公司统一社会信用代码:913...）
+            // CJK_RUN 会把"公司名+标签"合并为一个 token，整串被误判为标签而丢弃。
+            // 若 token 内含标签关键字，取标签前的 prefix 作为候选名称。
+            int cut = -1;
+            int i1 = g.indexOf("统一社会信用代码");
+            int i2 = g.indexOf("纳税人识别号");
+            if (i1 >= 0) cut = i1;
+            else if (i2 >= 0) cut = i2;
+            if (cut >= 0) {
+                String prefix = g.substring(0, cut);
+                if (prefix.length() >= 4 && !isLabelRun(prefix)) last = prefix;
+                continue;
+            }
+            if (isLabelRun(g)) continue;
+            last = g;
+        }
         return last;
+    }
+
+    private static boolean isLabelRun(String run) {
+        // 精确匹配完整标签短语，避免 endsWith("信用代码") 误伤
+        // 如"上海信用代码服务中心"这类合法公司名。
+        return run.contains("纳税人识别号") || run.contains("统一社会信用代码");
     }
 
     private static List<String> all(Pattern p, String text) {

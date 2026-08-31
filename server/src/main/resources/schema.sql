@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS invoice (
   tax_amount      TEXT    NULL,
   total_with_tax  TEXT    NULL,
   category        TEXT    NULL,
-  drawer          TEXT    NULL,
   file_path       TEXT    NOT NULL,
   used            INTEGER NOT NULL DEFAULT 0,   -- 已使用标记（导出批次创建时置 1，批次删除且无其他批次引用时清 0）
   used_at         TEXT    NULL,

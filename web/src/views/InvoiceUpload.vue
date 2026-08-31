@@ -33,6 +33,13 @@
           <el-icon class="file-icon"><document /></el-icon>
           <span class="file-name">{{ f.name }}</span>
           <span class="file-size">{{ formatSize(f.size) }}</span>
+          <!-- 逐文件状态：pending → uploading → success/failed，失败可重试 -->
+          <el-tag v-if="f.status === 'uploading'" size="small">上传中…</el-tag>
+          <el-tag v-else-if="f.status === 'success'" size="small" type="success">成功</el-tag>
+          <template v-else-if="f.status === 'failed'">
+            <el-tag size="small" type="danger">失败</el-tag>
+            <el-button link type="primary" :disabled="uploading" @click="retryFile(f)">重试</el-button>
+          </template>
           <el-icon class="file-remove" @click="removeFile(f)"><close /></el-icon>
         </div>
       </div>
@@ -45,7 +52,7 @@
           :disabled="!files.length"
           @click="doUpload"
         >
-          上传发票（{{ files.length }}）
+          {{ uploading ? `上传中（${doneCount}/${files.length}）` : `上传发票（${files.length}）` }}
         </el-button>
       </div>
     </div>
@@ -53,23 +60,38 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Document, Close } from '@element-plus/icons-vue'
 import { uploadInvoice, errorMessage } from '../api/invoice'
 import { useIsMobile } from '../composables/useIsMobile'
+import { formatSize } from '../utils/format'
 
 const isMobile = useIsMobile()
+
+const MAX_SIZE = 10 * 1024 * 1024 // 与后端单请求限制一致，选中时即拦截，免等 413
 
 const uploading = ref(false)
 const files = ref([])
 const uploadRef = ref(null)
 
+const doneCount = computed(() => files.value.filter(f => f.status === 'success').length)
+
 function onFileChange(f) {
-  if (!files.value.some(x => x.uid === f.uid)) {
-    files.value.push(f)
+  if (files.value.some(x => x.uid === f.uid)) return
+  if (!f.name.toLowerCase().endsWith('.pdf')) {
+    ElMessage.warning(`${f.name} 不是 PDF 文件，已忽略`)
+    uploadRef.value?.handleRemove(f)
+    return
   }
+  if ((f.size ?? 0) > MAX_SIZE) {
+    ElMessage.warning(`${f.name} 超过 10MB，已忽略`)
+    uploadRef.value?.handleRemove(f)
+    return
+  }
+  f.status = 'pending'
+  files.value.push(f)
 }
 
 function onFileRemove(f) {
@@ -85,39 +107,59 @@ function onExceed() {
   ElMessage.warning('一次最多选 20 张（后端单请求限制 10MB，20 张超出请分批）')
 }
 
-function formatSize(bytes) {
-  if (!bytes && bytes !== 0) return ''
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-}
-
 const router = useRouter()
+
+/** 上传单个文件并维护其状态，失败时保留在列表里供重试 */
+async function uploadOne(f) {
+  f.status = 'uploading'
+  try {
+    await uploadInvoice(f.raw)
+    f.status = 'success'
+    return true
+  } catch (e) {
+    f.status = 'failed'
+    ElMessage.error(`${f.name} 上传失败: ${await errorMessage(e)}`)
+    return false
+  }
+}
 
 async function doUpload() {
   if (!files.value.length) return
   uploading.value = true
-  const failed = []
-  let ok = 0
   try {
-    for (const f of files.value) {
-      try {
-        await uploadInvoice(f.raw)
-        ok++
-      } catch (e) {
-        failed.push(f)
-        ElMessage.error(`${f.name} 上传失败: ${await errorMessage(e)}`)
-      }
+    // 逐张串行：后端按单文件解析落盘，串行让失败定位到具体文件、也避免并发写库锁
+    for (const f of [...files.value]) {
+      if (f.status === 'success') continue
+      await uploadOne(f)
     }
     // 只清掉成功项，失败的留在列表里可查看/重试（走 handleRemove 同步 el-upload 内部列表）
-    for (const f of files.value.filter(x => !failed.includes(x))) {
+    const ok = files.value.filter(x => x.status === 'success').length
+    const failedCount = files.value.length - ok
+    for (const f of files.value.filter(x => x.status === 'success')) {
       uploadRef.value?.handleRemove(f)
     }
-    if (ok) {
-      ElMessage.success(`成功 ${ok} 张${failed.length ? `，失败 ${failed.length} 张` : ''}`)
-      if (!failed.length) router.push('/list')
+    if (ok && !failedCount) {
+      ElMessage.success(`成功 ${ok} 张`)
+      router.push('/list')
+    } else if (ok) {
+      ElMessage.warning(`成功 ${ok} 张，失败 ${failedCount} 张（可单张重试）`)
     } else {
-      ElMessage.error(`上传失败 ${failed.length} 张，请检查 PDF 是否损坏或已存在`)
+      ElMessage.error(`上传失败 ${failedCount} 张，请检查 PDF 是否损坏或已存在`)
+    }
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** 单张重试：只传该文件 */
+async function retryFile(f) {
+  uploading.value = true
+  try {
+    const ok = await uploadOne(f)
+    if (ok) {
+      ElMessage.success(`${f.name} 上传成功`)
+      uploadRef.value?.handleRemove(f)
+      if (!files.value.length) router.push('/list')
     }
   } finally {
     uploading.value = false
