@@ -22,6 +22,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # 小程序登录：openid 白名单为空 = 拒绝所有微信登录（首次绑定流程见 .env.example）
+      WX_APPID: ${WX_APPID:-}
+      WX_SECRET: ${WX_SECRET:-}
+      WX_ALLOWED_OPENIDS: ${WX_ALLOWED_OPENIDS:-}
       # 容器内 backend 在 nginx 之后，可安全信任其 X-Real-IP（nginx 用 CF-Connecting-IP
       # 回填真实客户端 IP，登录限流按访客真实 IP 计数而非 CF 边缘节点 IP）
       # 硬编码 true（安全：仅当后端在可信反代后才 true，绝不在 .env 暴露避免误关）。

@@ -1,0 +1,33 @@
+<view class="toolbar">
+  <input
+    class="search"
+    placeholder="搜索销售方 / 发票号码"
+    value="{{keyword}}"
+    confirm-type="search"
+    bindinput="onKeywordInput"
+    bindconfirm="onSearch"
+  />
+  <view class="tabs">
+    <view class="tab {{used === '' ? 'active' : ''}}" bindtap="setFilter" data-used="">全部</view>
+    <view class="tab {{used === 'false' ? 'active' : ''}}" bindtap="setFilter" data-used="false">未使用</view>
+    <view class="tab {{used === 'true' ? 'active' : ''}}" bindtap="setFilter" data-used="true">已使用</view>
+  </view>
+</view>
+
+<view class="card item" wx:for="{{invoices}}" wx:key="id" bindtap="openDetail" data-id="{{item.id}}">
+  <view class="row1">
+    <text class="seller">{{item.sellerName || '未知销售方'}}</text>
+    <text class="amount">¥{{item.totalWithTax}}</text>
+  </view>
+  <view class="row2">
+    <text class="number">No.{{item.invoiceNumber}}</text>
+    <text class="date">{{item.invoiceDate}}</text>
+    <text class="badge {{item.used ? 'used' : 'unused'}}">{{item.used ? '已使用' : '未使用'}}</text>
+  </view>
+</view>
+
+<view class="empty" wx:if="{{!loading && finished && invoices.length === 0}}">暂无发票</view>
+<view class="loading" wx:if="{{loading}}">加载中…</view>
+<view class="loading" wx:if="{{!loading && finished && invoices.length > 0}}">没有更多了</view>
+
+<view class="fab" bindtap="chooseAndUpload">＋</view>

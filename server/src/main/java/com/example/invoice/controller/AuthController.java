@@ -2,7 +2,9 @@ package com.example.invoice.controller;
 
 import com.example.invoice.dto.LoginRequest;
 import com.example.invoice.dto.LoginResponse;
+import com.example.invoice.dto.WxLoginRequest;
 import com.example.invoice.service.AuthService;
+import com.example.invoice.service.WxLoginService;
 import com.example.invoice.service.BadCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -16,17 +18,26 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+    private final WxLoginService wxLoginService;
     private final boolean trustProxy;
 
     public AuthController(AuthService authService,
+                          WxLoginService wxLoginService,
                           @Value("${trust-proxy:false}") boolean trustProxy) {
         this.authService = authService;
+        this.wxLoginService = wxLoginService;
         this.trustProxy = trustProxy;
     }
 
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
         return authService.login(req, clientIp(request));
+    }
+
+    /** 小程序登录：wx.login() 的 code 换 JWT（openid 白名单绑定 admin）。 */
+    @PostMapping("/wx-login")
+    public LoginResponse wxLogin(@Valid @RequestBody WxLoginRequest req, HttpServletRequest request) {
+        return wxLoginService.login(req.code(), clientIp(request));
     }
 
     /** 公开探活端点，供 Docker healthcheck（业务端点已 401 保护）。 */

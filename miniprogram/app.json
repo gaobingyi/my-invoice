@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/list/list",
+    "pages/detail/detail"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#1f6feb",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "发票管理",
+    "backgroundColor": "#f5f6f8"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

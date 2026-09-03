@@ -1,0 +1,105 @@
+.toolbar {
+  background: #fff;
+  padding: 16rpx 24rpx 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.search {
+  background: #f0f2f5;
+  border-radius: 12rpx;
+  padding: 14rpx 20rpx;
+  font-size: 26rpx;
+}
+
+.tabs {
+  display: flex;
+  margin-top: 8rpx;
+}
+
+.tab {
+  padding: 16rpx 28rpx;
+  font-size: 26rpx;
+  color: #646a73;
+  border-bottom: 4rpx solid transparent;
+}
+
+.tab.active {
+  color: #1f6feb;
+  border-bottom-color: #1f6feb;
+  font-weight: 600;
+}
+
+.item .row1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.seller {
+  font-size: 30rpx;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 16rpx;
+}
+
+.amount {
+  color: #d4711b;
+  font-weight: 600;
+}
+
+.item .row2 {
+  display: flex;
+  align-items: center;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #8f959e;
+}
+
+.number {
+  margin-right: 20rpx;
+}
+
+.badge {
+  margin-left: auto;
+  padding: 2rpx 14rpx;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+}
+
+.badge.unused {
+  color: #1f6feb;
+  background: #eaf1fe;
+}
+
+.badge.used {
+  color: #8f959e;
+  background: #f0f2f5;
+}
+
+.empty,
+.loading {
+  text-align: center;
+  color: #8f959e;
+  padding: 60rpx 0;
+  font-size: 26rpx;
+}
+
+.fab {
+  position: fixed;
+  right: 40rpx;
+  bottom: 60rpx;
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  background: #1f6feb;
+  color: #fff;
+  font-size: 56rpx;
+  line-height: 92rpx;
+  text-align: center;
+  box-shadow: 0 8rpx 20rpx rgba(31, 111, 235, 0.35);
+}

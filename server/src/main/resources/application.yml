@@ -43,7 +43,14 @@ llm:
   api-key: ${LLM_API_KEY:public}
   model: ${LLM_MODEL:big-pickle}
   timeout-seconds: 60
-  
+
+wx:
+  # 小程序登录（体验版）。appid/secret 来自 mp.weixin.qq.com；secret 只放服务端。
+  # 首次绑定：allowed-openids 留空登录一次，日志打出尝试者 openid，填入后重启。
+  appid: ${WX_APPID:}
+  secret: ${WX_SECRET:}
+  allowed-openids: ${WX_ALLOWED_OPENIDS:}
+
 logging:
   file:
     name: ./logs/invoice-server.log

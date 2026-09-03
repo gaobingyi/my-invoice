@@ -1,0 +1,27 @@
+{
+  "compileType": "miniprogram",
+  "appid": "wxd3d5a5f79e931fb6",
+  "projectname": "invoice-miniprogram",
+  "libVersion": "latest",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": false,
+    "coverView": true,
+    "autoAudits": false,
+    "showShadowRootInWxmlPanel": true,
+    "scopeDataCheck": false,
+    "uglifyFileName": false,
+    "checkInvalidKey": true,
+    "checkSiteMap": true,
+    "uploadWithSourceMap": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "condition": {}
+}

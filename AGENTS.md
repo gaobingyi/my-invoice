@@ -52,3 +52,11 @@ docker compose up -d --build                   # 两服务全镜像化（backend
 
 - nginx 对外 **8088 HTTPS**（`certs/origin.pem` + Cloudflare IP 白名单 `web/cf-allow.conf`），改端口/证书注意 compose 卷挂载。
 - 服务器端 curl 测中文上传失败先怀疑编码，不要怀疑 LLM。
+
+## 微信小程序（`miniprogram/`，体验版）
+
+- 仅做**体验版**（个人用，加体验成员扫码打开）：体验版开调试模式可绕过合法域名校验，`dpdns.org` 免费域名**永远无法 ICP 备案**，上不了正式版；正式版才需要备案域名 + 443。
+- 登录无感：`app.js` onLaunch 静默 `wx.login()` code → `POST /api/auth/wx-login`（`WxLoginService`，code2session）→ openid 白名单（`WX_ALLOWED_OPENIDS`）命中即签 admin JWT。**白名单为空 = 拒绝所有**；首次绑定：留空登录一次，后端日志打出 openid，填入 .env 重启。绝不能自动建号（任何打开小程序的用户都能拿到合法 openid）。
+- `miniprogram/utils/request.js`：401 自动清 token 重登并重放一次；上传 multipart 字段名必须 `file`；下载 PDF 走 `downloadInvoiceFile()`（带 header）→ `wx.openDocument` 原生预览（web 端 pdf.js 双路径在端内不需要）。
+- 详情页数据经 eventChannel 从列表页传入（后端无 `GET /api/invoices/{id}`）。
+- `project.config.json` 的 `urlCheck: false` 即「不校验合法域名」，本地联调可指 `http://localhost:8080`；上线前把 `appid` 从 `touristappid` 换成真实 AppID。
