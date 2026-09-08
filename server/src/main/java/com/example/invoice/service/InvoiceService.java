@@ -38,6 +38,10 @@ public class InvoiceService {
     private static final int MAX_CATEGORY = 64;
     private static final int MAX_LIST_SIZE = 100;
 
+    // pocfile: 业务规则：仅接受钦钦公司的发票（规则细节见 validateBuyer()）。
+    private static final String REQUIRED_BUYER_NAME = "上海钦钦印刷科技有限公司";
+    private static final String REQUIRED_BUYER_TAX_ID = "91310116332791646K";
+
     private final InvoiceRepository repository;
     private final ExportBatchItemRepository exportBatchItemRepository;
     private final InvoiceParser parser;
@@ -78,6 +82,9 @@ public class InvoiceService {
                 // 归类为用户输入问题 → 400，而非服务器错误 500。
                 throw new IllegalArgumentException("无法解析 PDF 内容", e);
             }
+
+            // 业务校验须在 LLM 兜底后的最终结果上进行（规则见 validateBuyer）。
+            validateBuyer(p);
 
             // pocfile: duplicate invoice number should be rejected. If parsing produced no
             // number we keep the file but store a sentinel so the NOT NULL/UNIQUE columns hold.
@@ -228,6 +235,21 @@ public class InvoiceService {
     private static String truncate(String s, int max) {
         if (s == null || s.length() <= max) return s;
         return s.substring(0, max);
+    }
+
+    /** 业务校验：购买方必须是钦钦公司（名称 + 信用代码都匹配）。null（解析失败、LLM 兜底
+     * 也没补上）视为不符，同样拒绝 —— 保证入库的每张票确认购买方正确。消息带上解析到的值，
+     * 用户能区分"解析失败"与"真买到别家票"。 */
+    static void validateBuyer(ParsedInvoice p) {
+        String name = p.buyerName() == null ? "" : p.buyerName().trim();
+        String taxId = p.buyerTaxId() == null ? "" : p.buyerTaxId().trim();
+        if (REQUIRED_BUYER_NAME.equals(name) && REQUIRED_BUYER_TAX_ID.equals(taxId)) {
+            return;
+        }
+        throw new IllegalArgumentException(
+                "购买方校验失败：解析到购买方 [" + name + "]，信用代码 [" + taxId + "]；"
+                        + "本系统仅接受购买方为「" + REQUIRED_BUYER_NAME + "」（信用代码 "
+                        + REQUIRED_BUYER_TAX_ID + "）的发票");
     }
 
     private static boolean isDuplicateKey(DataIntegrityViolationException e) {

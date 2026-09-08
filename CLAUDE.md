@@ -105,6 +105,7 @@ JPA `ddl-auto: none`（SQLite 类型亲和非严格，validate 频繁误报；sc
 临时 UUID 文件名落盘 → 解析 → 按 `<销售方>_<号码>` 重命名 → 入库。文件存 `./uploads`，DB 只存相对路径。
 - 重命名用 `Files.move(tmp, dest)`（**无** `REPLACE_EXISTING`）：目标已存在（重复发票）→ 409，绝不覆盖已存 PDF。
 - 解析失败（损坏/加密 PDF）→ 删临时文件后抛错，不泄露孤儿文件。
+- 购买方业务校验：解析后 `validateBuyer()` 要求购买方必须为「上海钦钦印刷科技有限公司」+ 信用代码「91310116332791646K」，名称或代码不符 / 解析不出（null）一律 `IllegalArgumentException` → 400（严格拒绝）。
 - 解析不出号码 → 存 `UNKNOWN-<12位hex>` 哨兵（必须 ≤ VARCHAR(20)，不可用完整 UUID）。
 - 入库违反 UNIQUE（并发重复）→ 删文件 + 409。
 
