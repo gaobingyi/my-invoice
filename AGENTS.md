@@ -24,16 +24,19 @@ docker compose up -d --build                   # 两服务全镜像化（backend
 
 ## 解析架构（核心）
 
-`InvoiceParser.parse()` 两条路径，改这里必读 `CLAUDE.md`「解析架构」：
+`InvoiceParser.parse()` 三条路径，改这里必读 `CLAUDE.md`「解析架构」：
 
-1. **正则快速路径**：PDFBox 会把这类 PDF 重排 —— 标签聚顶、**值按文档顺序在底部流出**，因此按值 pattern + 位置顺序提取，不锚定邻近标签。金额 3 个 ¥ 值：`max=价税合计`、`min=税额`、`middle=金额`。
-2. **LLM 兜底** `InvoiceLlmExtractor.fill()`：只回填缺失字段，失败不报错（null 保留、上传继续）。三个坑：body 必须 `String.getBytes(UTF_8)`（RestClient 默认 ISO-8859-1 损坏中文→400）；取 `resp.lastIndexOf('}')` 前内容剥离 SSE framing；发送前剥 `\p{Cntrl}`。
+1. **正则快速路径**：PDFBox 会把这类 PDF 重排 —— 标签聚顶、**值按文档顺序在底部流出**，因此按值 pattern + 位置顺序提取，不锚定邻近标签。金额 3 个 ¥ 值：`max=价税合计`、`min=税额`、`middle=金额`。号码是 `\b\d{20}\b`（必须整体 20 位，宽松的 `\d{20}` 会从粘连的信用代码串里截错）。
+2. **字形坐标路径** `InvoiceParser.Layout`：同一次 PDFBox 加载顺带收字形坐标，**只覆盖购/销方名称与代码**，取不到就放弃、保留正则结果。专治「购/销两列压进同一物理行」的版式（京东票：两列名称粘成一个 writeString、两列代码粘成另一个且无分隔符，文本顺序已丢失列归属，只有 x 坐标能还原）。按 y 分行、行内按 x 排序，连续 `[0-9A-Z]` 按间距 >1.6pt 切词，取最上面一对代码（左=购右=销），名称逐行上溯最近的**非标签**中文串（`NOT_NAME` 黑名单滤掉页眉与大写金额行）。竖排单字标签（购/买/销/售/方/信/息）须在 `writeString` 阶段丢弃；`getUnicode()` 可能是空串，取字符前判长度。
+3. **LLM 兜底** `InvoiceLlmExtractor.fill()`：只回填缺失字段，失败不报错（null 保留、上传继续）。三个坑：body 必须 `String.getBytes(UTF_8)`（RestClient 默认 ISO-8859-1 损坏中文→400）；取 `resp.lastIndexOf('}')` 前内容剥离 SSE framing；发送前剥 `\p{Cntrl}`。
 
-测试 fixture（`server/src/test/resources/*.pdf`）是真实 PDF 布局，测试用 `new InvoiceParser(null)`（null=不开 LLM）。新增版式：加 fixture + 断言，能正则则正则，否则靠 LLM。
+测试 fixture（`server/src/test/resources/*.pdf`）是真实 PDF 布局，测试用 `new InvoiceParser(null, null)`（null=不开 LLM，null=不记指标）。新增版式：加 fixture + 断言，能正则则正则，否则靠 LLM。京东样例不入库 —— `parsesColumnsGluedOntoOneLine` 从仓库根 `invoice_examples/` 读，文件缺失时 `assumeTrue` **跳过而非失败**（新克隆/CI 会静默跳过、覆盖为零）。
 
 个体户销售方坑：销方名称不限定「公司」结尾（…商店/中心/厂），匹配不上 NAME 时备注里「销方开户银行:…公司」会顶替真实销售方 —— 名称与其统一社会信用代码**按位置配对**（信用代码 18 位、可能纯数字），配不上再退回旧 NAME 列表逻辑。
 
 标签紧贴值版式坑（纵排 购/买/方/信/息，如山姆票）：`名称:某某公司` 与 `统一社会信用代码/纳税人识别号:91…` 直接相邻，代码值前最近的中文串是列标签本身 —— `nameBefore` 按 `isLabelRun` 跳过「纳税人识别号/统一社会信用代码」等标签串再取上一个；否则购销方名称会变成「纳税人识别号」（LLM 不兜底：字段非 null）。
+
+两列同排版式坑（京东票）：名称尾部会粘连标签残字（「…有限公司名」），需 `trimLabelTail()` 去掉。
 
 ## 数据模型与上传
 
