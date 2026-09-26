@@ -3,10 +3,12 @@ package com.example.invoice.service;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class InvoiceParserTest {
 
@@ -28,6 +30,24 @@ class InvoiceParserTest {
     private ParsedInvoice parseShenzhou() throws Exception {
         Path pdf = Path.of(getClass().getClassLoader().getResource("sample-shenzhou.pdf").toURI());
         return parser.parse(pdf);
+    }
+
+    private ParsedInvoice parseJd() throws Exception {
+        return parser.parse(jdSample());
+    }
+
+    /** pocfile: 京东样例 PDF 不入库（invoice_examples/ 被 .gitignore 忽略，真实发票不进仓库），
+     * 故按目录特征从工作目录上溯定位仓库根，而不是 getResource()。文件缺失时跳过而非失败 ——
+     * 新克隆的仓库没有 invoice_examples/，不该因此变红。 */
+    private static Path jdSample() {
+        Path dir = Path.of("").toAbsolutePath();
+        while (dir != null && !Files.isDirectory(dir.resolve("invoice_examples"))) {
+            dir = dir.getParent();
+        }
+        assumeTrue(dir != null, "未找到 invoice_examples/ 目录，跳过");
+        Path pdf = dir.resolve("invoice_examples/digital_26327000001626916458.pdf");
+        assumeTrue(Files.isRegularFile(pdf), "缺少样例 " + pdf + "，跳过");
+        return pdf;
     }
 
     @Test
@@ -154,5 +174,28 @@ class InvoiceParserTest {
         assertEquals(new BigDecimal("8.81"), p.taxAmount());
         assertEquals(new BigDecimal("890.00"), p.totalWithTax());
         assertTrue(p.category().contains("其他食品"));
+    }
+
+    @Test
+    void parsesColumnsGluedOntoOneLine() throws Exception {
+        // pocfile: 京东票把购/销两列压进同一条物理行，且中间无任何分隔符：
+        // 两列名称粘成一个 writeString（「昆山京东尚信贸易有限公司上海钦钦印刷科技有限公司」），
+        // 两列代码粘成 `91320583088001883991310116332791646K`。文本顺序无法判断谁是谁，
+        // 旧正则把 20 位号码从 35 位数字里截成 `91320583088001883991`、购方名称取成
+        // 「伍仟伍佰玖拾贰圆叁角叁分」、销方整对留空。改为按字形 x 坐标分列后各字段归位。
+        ParsedInvoice p = parseJd();
+        assertEquals("26327000001626916458", p.invoiceNumber());
+        assertEquals(LocalDate.of(2026, 9, 12), p.invoiceDate());
+        assertEquals("上海钦钦印刷科技有限公司", p.buyerName());
+        assertEquals("91310116332791646K", p.buyerTaxId());
+        assertEquals("昆山京东尚信贸易有限公司", p.sellerName());
+        assertEquals("913205830880018839", p.sellerTaxId());
+        assertEquals(new BigDecimal("4948.97"), p.totalAmount());
+        assertEquals(new BigDecimal("643.36"), p.taxAmount());
+        assertEquals(new BigDecimal("5592.33"), p.totalWithTax());
+        assertTrue(p.category().contains("家用通风电器具"));
+        // 修复前购方名称被解析成「伍仟伍佰玖拾贰圆叁角叁分」、代码被解析成 16 位订单号，
+        // 上传会被 validateBuyer 拒收（400）。这里直接断言业务规则能通过。
+        assertDoesNotThrow(() -> InvoiceService.validateBuyer(p));
     }
 }
