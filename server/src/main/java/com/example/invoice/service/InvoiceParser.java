@@ -60,6 +60,17 @@ public class InvoiceParser {
     private static final Pattern CATEGORY = Pattern.compile("\\*[^*]+\\*");
     // 金额符号同时接受半角 ¥ 与全角 ￥。
 
+    // pocfile: 铁路电子客票（电子发票（铁路电子客票））票面结构特殊：金额只有
+    // 「票价: ￥127.00」一个值（不满足金额+税额=价税合计的三值不变量），明细无 *…* 行，
+    // 且完全不印销售方。检测到标记即走专用分支：票价直接作 金额=价税合计，税额票面无拆分
+    // 记 0.00（127 + 0 = 127，三值不变量自洽，Excel 合计可正常累加），销售方固定为国铁
+    // 集团（代码 91100000000013477B 已按 GB 32100-2015 校验位算法核验）。
+    private static final String RAILWAY_MARK = "铁路电子客票";
+    private static final String RAILWAY_SELLER_NAME = "中国国家铁路集团有限公司";
+    private static final String RAILWAY_SELLER_TAX_ID = "91100000000013477B";
+    // 票面站点写法是「扬州站」「上海站」（站名最长如「北京南」，后缀站字定界）。
+    private static final Pattern RAILWAY_STATION = Pattern.compile("([\\u4e00-\\u9fa5]{1,8}?)站");
+
     public ParsedInvoice parse(Path pdf) throws IOException {
         ParseContext ctx = (metrics != null) ? new ParseContext() : null;
         String text;
@@ -303,8 +314,35 @@ public class InvoiceParser {
         String buyerTax = taxes.size() > 0 ? taxes.get(0).value() : null;
         String sellerTax = taxes.size() > 1 ? taxes.get(1).value() : null;
 
+        if (text.contains(RAILWAY_MARK)) {
+            if (totalWithTax == null && yens.size() == 1) {
+                // 票价即实付总额：金额=价税合计=票价，税额票面无拆分记 0.00。
+                totalWithTax = yens.get(0);
+                totalAmount = yens.get(0);
+                taxAmount = new BigDecimal("0.00");
+            }
+            if (sellerName == null) sellerName = RAILWAY_SELLER_NAME;
+            if (sellerTax == null) sellerTax = RAILWAY_SELLER_TAX_ID;
+            if (category == null) category = railwayCategory(text);
+        }
+
         return new ParsedInvoice(number, date, buyerName, buyerTax, sellerName,
                 sellerTax, category, totalAmount, taxAmount, totalWithTax);
+    }
+
+    /**
+     * 铁路票没有 *…* 明细行，项目名称展示为行程「扬州 → 上海」（Unicode 箭头，三端展示
+     * 通用）。票面站点按文档序出现（出发站在前），去重后恰好两站才生效；PDFBox 漏字或
+     * 行程异常时返回 null 留给 LLM。
+     */
+    private static String railwayCategory(String text) {
+        List<String> stations = new ArrayList<>();
+        Matcher m = RAILWAY_STATION.matcher(text);
+        while (m.find()) {
+            String s = m.group(1);
+            if (!stations.contains(s)) stations.add(s);
+        }
+        return stations.size() == 2 ? stations.get(0) + " → " + stations.get(1) : null;
     }
 
     private static String first(Pattern p, String text) {
