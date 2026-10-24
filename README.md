@@ -46,7 +46,7 @@ docker compose up -d --build
 
 ### 本地开发
 
-**环境前置**（详见 [CLAUDE.md](CLAUDE.md)）：
+**环境前置**（详见 [AGENTS.md](AGENTS.md)）：
 - SQLite 是文件式数据库，首次启动自动建表（`spring.sql.init.mode: always` 触发 `server/src/main/resources/schema.sql`）。DB 落 `server/data/invoice.db`
 - LLM 兜底可选：`LLM_ENABLED=false` 关闭；本地不起后端时无需配 key（`application.yml` 有 dev default）。改 key/地址用根 `.env` 或 shell export（无 `server/.env` 文件）
 
@@ -68,11 +68,14 @@ node web/e2e/run.mjs                  # 无 Xvfb 的机器用 E2E_HEADLESS=1
 
 ## 解析原理
 
-`InvoiceParser` 两条路径：
+`InvoiceParser` 三条路径：
 1. **正则快速路径**：PDFBox 抽文本后按值 pattern + 位置顺序提取（PDFBox 会把标签聚顶、值按文档序流出）。金额不锚定标签，而是解 `金额 + 税额 = 价税合计` 不变量
-2. **LLM 兜底**：正则缺失字段时调 OpenAI 兼容服务补全，失败不中断上传
+2. **字形坐标路径**：顺带收集字形坐标，专治「购/销两列压进同一物理行、文本序丢失列归属」的版式（按 x 坐标还原左右两列），取不到就保留正则结果
+3. **LLM 兜底**：正则缺失字段时调 OpenAI 兼容服务补全，失败不中断上传
 
-上传时另有业务校验：购买方必须是「上海钦钦印刷科技有限公司」（名称 + 信用代码双匹配），不符或解析不出直接拒绝。细节见 [CLAUDE.md](CLAUDE.md)「解析架构」「上传流程」。
+另对铁路电子客票（无销售方、票面仅一个「票价」值）有专用分支：票价即金额=价税合计、税额记 0，销售方固定为国铁集团，项目名称显示为行程「起点 → 终点」。
+
+上传时另有业务校验：购买方必须是「上海钦钦印刷科技有限公司」（名称 + 信用代码双匹配），不符或解析不出直接拒绝。细节见 [AGENTS.md](AGENTS.md)「解析架构」「上传流程」。
 
 ## 项目结构
 
