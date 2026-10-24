@@ -51,7 +51,9 @@ public class InvoiceParser {
     // pocfile: 号码必须整体 20 位。宽松的 `\d{20}` 会从「35 位数字粘成一串」的信用代码里
     // 截出前 20 位当号码（京东票即如此）。
     private static final Pattern NUMBER = Pattern.compile("\\b\\d{20}\\b");
-    private static final Pattern DATE = Pattern.compile("(\\d{4})年(\\d{1,2})月(\\d{1,2})日");
+    // pocfile: PDFBox 偶发在「年/月」后插空格（2026年 09月 12日，润云购物中心票即如此），
+    // 日期各段之间必须容忍空白。
+    private static final Pattern DATE = Pattern.compile("(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日");
     // pocfile: currency mark may be half-width ¥ or full-width ￥, and sits before the
     // number (¥189.62, ￥149.00) or after it (1353.10¥). Match either variant, either side.
     private static final Pattern YEN = Pattern.compile("[¥￥]\\s*([\\d,]+\\.\\d{2})|([\\d,]+\\.\\d{2})\\s*[¥￥]");

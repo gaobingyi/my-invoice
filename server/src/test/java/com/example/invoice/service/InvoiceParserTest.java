@@ -35,6 +35,14 @@ class InvoiceParserTest {
     }
 
     @Test
+    void dateWithInnerSpacesStillParses() throws Exception {
+        // pocfile: PDFBox 偶发在「年/月」后插空格（润云购物中心票 26322000007541383186），
+        // 日期各段之间须容忍空白。
+        ParsedInvoice p = parser.parseText("开票日期：\n2026年 09月 12日");
+        assertEquals(LocalDate.of(2026, 9, 12), p.invoiceDate());
+    }
+
+    @Test
     void parsesFullWidthYenLayout() throws Exception {
         // pocfile: 全角 ￥ 与半角 ¥ 同为合法金额符号（YEN 均已放宽）。
         // 按 PDFBox 实际布局构造：标签聚顶部、值按文档序流底部。
