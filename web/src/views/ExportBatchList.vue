@@ -368,10 +368,10 @@ function onPageChange(p) {
   load()
 }
 
-// 金额列统一带人民币符号（解析失败为 null 时保持空白，与移动端卡片一致）
+// 金额列统一带人民币符号（解析失败为 null 时显示「-」，铁路电子客票金额/税额票面无此值）
 function withYuan(v) {
   const m = money(v)
-  return m ? `¥${m}` : ''
+  return m ? `¥${m}` : '-'
 }
 
 async function download(row) {

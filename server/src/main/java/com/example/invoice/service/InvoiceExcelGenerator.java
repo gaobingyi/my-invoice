@@ -69,9 +69,9 @@ public class InvoiceExcelGenerator {
         }
     }
 
-    /** 与列表页金额列同风格：null 显示为空，非空保留两位小数字符串。 */
+    /** 与列表页金额列同风格：null 显示「-」（铁路电子客票金额/税额票面无此值），非空保留两位小数字符串。 */
     private static String amountText(BigDecimal v) {
-        return v == null ? "" : v.toPlainString();
+        return v == null ? "-" : v.toPlainString();
     }
 
     private static String dateText(LocalDate d) {

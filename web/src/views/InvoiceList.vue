@@ -275,7 +275,7 @@ function onSizeChange() {
 // 金额列统一带人民币符号（解析失败为 null 时保持空白，与移动端卡片一致）
 function withYuan(v) {
   const m = money(v)
-  return m ? `¥${m}` : ''
+  return m ? `¥${m}` : '-'
 }
 
 function preview(row) {

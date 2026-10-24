@@ -65,8 +65,8 @@ class InvoiceExcelGeneratorTest {
             assertEquals("购买方乙", text(sheet, 2, 3));
             assertEquals("销售方甲", text(sheet, 2, 4));
 
-            // 第二行：税额为 null → 空串
-            assertEquals("", text(sheet, 3, 7));
+            // 第二行：税额为 null → 「-」（铁路电子客票票面无金额/税额拆分）
+            assertEquals("-", text(sheet, 3, 7));
 
             // 合计行：金额/税额/价税合计；null 税额不计入
             assertEquals("合计", text(sheet, 4, 0));
