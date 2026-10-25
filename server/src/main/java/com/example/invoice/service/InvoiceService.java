@@ -238,18 +238,19 @@ public class InvoiceService {
     }
 
     /** 业务校验：购买方必须是钦钦公司（名称 + 信用代码都匹配）。null（解析失败、LLM 兜底
-     * 也没补上）视为不符，同样拒绝 —— 保证入库的每张票确认购买方正确。消息带上解析到的值，
-     * 用户能区分"解析失败"与"真买到别家票"。 */
+     * 也没补上）视为不符，同样拒绝 —— 保证入库的每张票确认购买方正确。消息只带解析到的值
+     * （简短，供行内展示），用户能区分"解析失败"与"真买到别家票"；期望值是固定规则不再重复。 */
     static void validateBuyer(ParsedInvoice p) {
         String name = p.buyerName() == null ? "" : p.buyerName().trim();
         String taxId = p.buyerTaxId() == null ? "" : p.buyerTaxId().trim();
         if (REQUIRED_BUYER_NAME.equals(name) && REQUIRED_BUYER_TAX_ID.equals(taxId)) {
             return;
         }
-        throw new IllegalArgumentException(
-                "购买方校验失败：解析到购买方 [" + name + "]，信用代码 [" + taxId + "]；"
-                        + "本系统仅接受购买方为「" + REQUIRED_BUYER_NAME + "」（信用代码 "
-                        + REQUIRED_BUYER_TAX_ID + "）的发票");
+        String parsed = name.isEmpty() && taxId.isEmpty() ? "未解析到购买方"
+                : name.isEmpty() ? "信用代码 " + taxId
+                : taxId.isEmpty() ? name
+                : name + "（" + taxId + "）";
+        throw new IllegalArgumentException("购买方校验失败：" + parsed);
     }
 
     private static boolean isDuplicateKey(DataIntegrityViolationException e) {

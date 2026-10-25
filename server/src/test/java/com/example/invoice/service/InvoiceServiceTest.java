@@ -40,7 +40,6 @@ class InvoiceServiceTest {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> InvoiceService.validateBuyer(parsed("测试买家公司", REQUIRED_TAX_ID)));
         assertTrue(e.getMessage().contains("测试买家公司"));
-        assertTrue(e.getMessage().contains(REQUIRED_NAME));
     }
 
     @ParameterizedTest
@@ -62,18 +61,13 @@ class InvoiceServiceTest {
     void nullBuyerNameRejected() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> InvoiceService.validateBuyer(parsed(null, REQUIRED_TAX_ID)));
-        assertTrue(e.getMessage().contains("[]"));
+        assertTrue(e.getMessage().contains("信用代码"));
     }
 
     @Test
     void wrongNameAndTaxIdBothReportedInMessage() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> InvoiceService.validateBuyer(parsed("甲公司", "12345678901234567X")));
-        assertTrue(e.getMessage().contains("甲公司"));
-        assertTrue(e.getMessage().contains("12345678901234567X"));
-        assertEquals("购买方校验失败：解析到购买方 [甲公司]，信用代码 [12345678901234567X]；"
-                        + "本系统仅接受购买方为「" + REQUIRED_NAME + "」（信用代码 "
-                        + REQUIRED_TAX_ID + "）的发票",
-                e.getMessage());
+        assertEquals("购买方校验失败：甲公司（12345678901234567X）", e.getMessage());
     }
 }
