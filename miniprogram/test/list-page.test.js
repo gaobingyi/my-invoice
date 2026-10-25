@@ -5,6 +5,7 @@
 const calls = []        // 每次 wx.request 的记录（断言参数用）
 const toasts = []
 let summaryQueue = []   // /api/invoices/summary 的可编程响应队列；空则用默认成功值
+let wxLoginQueue = []   // /api/auth/wx-login 的可编程响应队列；空则用默认成功值
 
 global.wx = {
   getStorageSync: key => (key === 'token' ? 'test-token' : ''),
@@ -15,12 +16,21 @@ global.wx = {
   hideLoading: () => {},
   stopPullDownRefresh: () => {},
   navigateTo: () => {},
+  login(opts) {
+    setTimeout(() => opts.success({ code: 'test-code' }), 0)
+  },
   request(opts) {
     calls.push(opts)
     setTimeout(() => {
       if (opts.url.endsWith('/api/invoices/summary')) {
         const r = summaryQueue.length ? summaryQueue.shift()
             : { statusCode: 200, data: { count: 9, totalWithTax: 10056.20 } }
+        opts.success({ statusCode: r.statusCode, data: r.data })
+        return
+      }
+      if (opts.url.endsWith('/api/auth/wx-login')) {
+        const r = wxLoginQueue.length ? wxLoginQueue.shift()
+            : { statusCode: 200, data: { token: 'fresh-token', username: 'admin' } }
         opts.success({ statusCode: r.statusCode, data: r.data })
         return
       }
@@ -39,6 +49,7 @@ global.wx = {
 let pageConfig
 global.Page = config => { pageConfig = config }
 require('../pages/list/list.js')
+const { wxLogin } = require('../utils/request')
 
 // 实例化页面：data 深拷贝隔离 + setData 合并语义（近似小程序运行时，方法内 this 指向 page）
 const page = Object.assign({}, pageConfig)
@@ -94,6 +105,11 @@ function check(name, cond) {
   await tick()
   check('列表照常加载', listCalls().length >= 3)
   check('失败静默：summary 保持 null 且无 toast', page.data.summary === null && toasts.length === 0)
+
+  console.log('场景 6：wx-login 纯文本 401 错误体透出真实原因')
+  wxLoginQueue = [{ statusCode: 401, data: '该微信未绑定' }]
+  const errMsg = await wxLogin().then(() => '(resolved)').catch(e => e.message)
+  check('错误文案为后端原文而非「微信登录失败 401」', errMsg === '该微信未绑定')
 
   console.log('')
   console.log('通过 ' + passed + '，失败 ' + failed)

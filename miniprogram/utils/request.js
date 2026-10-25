@@ -32,7 +32,11 @@ function wxLogin() {
           setToken(res.data.token)
           resolve(res.data)
         } else {
-          reject(new Error((res.data && res.data.message) || '微信登录失败 ' + res.statusCode))
+          // 4xx 错误体是纯文本（AuthController 的 BadCredentialsException 直接回 message 字符串）
+          const msg = (typeof res.data === 'string' && res.data.trim())
+            || (res.data && res.data.message)
+            || '微信登录失败 ' + res.statusCode
+          reject(new Error(msg))
         }
       },
       fail: () => reject(new Error('网络异常，登录失败'))
