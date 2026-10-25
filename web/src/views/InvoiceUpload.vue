@@ -38,6 +38,9 @@
           <el-tag v-else-if="f.status === 'success'" size="small" type="success">成功</el-tag>
           <template v-else-if="f.status === 'failed'">
             <el-tag size="small" type="danger">失败</el-tag>
+            <el-tooltip v-if="f.error" :content="f.error" placement="top" :show-after="300">
+              <span class="file-error">{{ f.error }}</span>
+            </el-tooltip>
             <el-button link type="primary" :disabled="uploading" @click="retryFile(f)">重试</el-button>
           </template>
           <el-icon class="file-remove" @click="removeFile(f)"><close /></el-icon>
@@ -109,16 +112,17 @@ function onExceed() {
 
 const router = useRouter()
 
-/** 上传单个文件并维护其状态，失败时保留在列表里供重试 */
+/** 上传单个文件并维护其状态，失败时保留在列表里供重试（原因存 f.error 行内展示，不弹错误消息） */
 async function uploadOne(f) {
   f.status = 'uploading'
+  f.error = ''
   try {
     await uploadInvoice(f.raw)
     f.status = 'success'
     return true
   } catch (e) {
     f.status = 'failed'
-    ElMessage.error(`${f.name} 上传失败: ${await errorMessage(e)}`)
+    f.error = await errorMessage(e)
     return false
   }
 }
@@ -133,18 +137,14 @@ async function doUpload() {
       await uploadOne(f)
     }
     // 只清掉成功项，失败的留在列表里可查看/重试（走 handleRemove 同步 el-upload 内部列表）
+    // 失败情况不弹消息：行内已展示「失败 + 原因」
     const ok = files.value.filter(x => x.status === 'success').length
     const failedCount = files.value.length - ok
     for (const f of files.value.filter(x => x.status === 'success')) {
       uploadRef.value?.handleRemove(f)
     }
     if (ok && !failedCount) {
-      ElMessage.success(`成功 ${ok} 张`)
       router.push('/list')
-    } else if (ok) {
-      ElMessage.warning(`成功 ${ok} 张，失败 ${failedCount} 张（可单张重试）`)
-    } else {
-      ElMessage.error(`上传失败 ${failedCount} 张，请检查 PDF 是否损坏或已存在`)
     }
   } finally {
     uploading.value = false
@@ -298,6 +298,17 @@ async function retryFile(f) {
   color: var(--el-text-color-secondary);
   flex-shrink: 0;
   margin-right: 4px;
+}
+/* 失败原因：截断展示，悬停 tooltip 看全文 */
+.file-error {
+  font-size: 12px;
+  color: var(--el-color-danger);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .file-remove {
   cursor: pointer;
