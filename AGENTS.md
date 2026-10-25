@@ -156,6 +156,7 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 - `POST /api/auth/login`、`POST /api/auth/wx-login`、`GET /api/auth/ping`
 - `POST /api/invoices/upload`（multipart `file`，≤10MB）
 - `GET /api/invoices?page=&size=&used=&keyword=`（分页，按 createdAt 倒序；`used` 过滤已使用标记；`keyword` 对销售方/购买方/发票号码/项目名称模糊匹配，LIKE 通配符已转义；`size` 上限 100）
+- `GET /api/invoices/summary?used=&keyword=`（与列表同一套过滤参数的张数 + 价税合计，过滤逻辑在 `InvoiceService.filterSpec` 与列表共用；小程序「未使用」tab 的合计条用，null 金额不计入合计）
 - `DELETE /api/invoices/{id}`
 - `GET /api/invoices/{id}/file?disposition=inline|download`（预览/下载）
 - `POST /api/export-batches`（body `{ids, batchMonth}`）、`GET /api/export-batches?page=&size=`
@@ -182,6 +183,7 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 - `miniprogram/utils/request.js`：401 自动清 token 重登并重放一次；上传 multipart 字段名必须 `file`；下载 PDF 走 `downloadInvoiceFile()`（带 header）→ `wx.openDocument` 原生预览（web 端 pdf.js 双路径在端内不需要）。
 - 详情页数据经 eventChannel 从列表页传入（后端无 `GET /api/invoices/{id}`）。
 - `project.config.json` 的 `urlCheck: false` 即「不校验合法域名」，本地联调可指 `http://localhost:8080`；上线前把 `appid` 从 `touristappid` 换成真实 AppID。
+- 列表页逻辑测试：`node miniprogram/test/list-page.test.js` —— Node 打桩 `wx` 全局直接驱动 `pages/list/list.js`（无开发者工具依赖），覆盖「未使用」合计条数据流。`test/` 目录已由 `packOptions.ignore` 排除出上传包，勿删该配置。
 
 ## 开发环境坑
 

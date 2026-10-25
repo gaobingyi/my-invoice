@@ -23,5 +23,13 @@
       "outputPath": ""
     }
   },
-  "condition": {}
+  "condition": {},
+  "packOptions": {
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "test"
+      }
+    ]
+  }
 }

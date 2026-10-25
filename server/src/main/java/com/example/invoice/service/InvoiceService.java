@@ -1,5 +1,6 @@
 package com.example.invoice.service;
 
+import com.example.invoice.dto.InvoiceSummaryResponse;
 import com.example.invoice.entity.Invoice;
 import com.example.invoice.repository.ExportBatchItemRepository;
 import com.example.invoice.repository.InvoiceRepository;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,7 +24,9 @@ import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -170,12 +174,35 @@ public class InvoiceService {
         size = Math.min(Math.max(size, 1), MAX_LIST_SIZE);
         Pageable pageable = PageRequest.of(page, size,
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        boolean hasKeyword = keyword != null && !keyword.isBlank();
-        if (!hasKeyword && used == null) {
+        Specification<Invoice> spec = filterSpec(used, keyword);
+        if (spec == null) {
             return repository.findAll(pageable);
         }
+        return repository.findAll(spec, pageable);
+    }
+
+    /** 与 list() 同一套过滤条件下的张数 + 价税合计（小程序「未使用」合计条）。
+     * 个人库规模（数百行）全量取回内存加总：金额列在 SQLite 里是 TEXT，SQL SUM
+     * 依赖隐式类型转换且 JPA 映射不到 BigDecimal，得不偿失。 */
+    public InvoiceSummaryResponse summary(Boolean used, String keyword) {
+        Specification<Invoice> spec = filterSpec(used, keyword);
+        List<Invoice> all = spec == null ? repository.findAll() : repository.findAll(spec);
+        // 解析不出金额的票 totalWithTax 为 null，跳过不计入（张数仍计入）
+        BigDecimal total = all.stream()
+                .map(Invoice::getTotalWithTax)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new InvoiceSummaryResponse(all.size(), total);
+    }
+
+    /** list/summary 共用的过滤条件。无任何条件时返回 null（调用方走无 spec 快路径）。 */
+    private static Specification<Invoice> filterSpec(Boolean used, String keyword) {
+        boolean hasKeyword = keyword != null && !keyword.isBlank();
+        if (!hasKeyword && used == null) {
+            return null;
+        }
         if (!hasKeyword) {
-            return repository.findByUsed(used, pageable);
+            return (root, query, cb) -> cb.equal(root.get("used"), used);
         }
         // 关键词模糊匹配：销售方/购买方/发票号码/项目名称 任一命中（SQLite LIKE 对中文按原文匹配）
         // LIKE 通配符转义：用户输入的 %/_ 视为字面量（分类含 * 测过，但用户仍可能搜 %/_）
@@ -190,7 +217,7 @@ public class InvoiceService {
         if (used != null) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("used"), used));
         }
-        return repository.findAll(spec, pageable);
+        return spec;
     }
 
     public Path resolveFile(Long id) {

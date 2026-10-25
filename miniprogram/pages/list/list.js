@@ -9,6 +9,7 @@ Page({
     totalPages: 0,
     keyword: '',
     used: '', // ''=全部 'false'=未使用 'true'=已使用
+    summary: null, // 「未使用」tab 的合计条：{count, totalWithTax}
     loading: false,
     finished: false,
     uploading: false
@@ -49,8 +50,23 @@ Page({
   },
 
   reload() {
+    this.fetchSummary()
     return this.fetchPage(0, false).catch(err =>
       wx.showToast({ title: err.message || '加载失败', icon: 'none' }))
+  },
+
+  // 「未使用」tab 的合计条，与列表同一套过滤参数（keyword 变化时随之刷新）；
+  // 失败静默——统计是附属信息，不阻断列表加载。
+  fetchSummary() {
+    if (this.data.used !== 'false') {
+      if (this.data.summary) this.setData({ summary: null })
+      return
+    }
+    const data = { used: 'false' }
+    if (this.data.keyword) data.keyword = this.data.keyword
+    request({ url: '/api/invoices/summary', data })
+      .then(summary => this.setData({ summary }))
+      .catch(() => {})
   },
 
   onPullDownRefresh() {

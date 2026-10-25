@@ -14,6 +14,11 @@
   </view>
 </view>
 
+<view class="summary" wx:if="{{used === 'false' && summary}}">
+  <text>未使用 {{summary.count}} 张</text>
+  <text class="summary-amount">合计 ¥{{summary.totalWithTax}}</text>
+</view>
+
 <view class="card item" wx:for="{{invoices}}" wx:key="id" bindtap="openDetail" data-id="{{item.id}}">
   <view class="row1">
     <text class="seller">{{item.sellerName || '未知销售方'}}</text>

@@ -1,5 +1,6 @@
 package com.example.invoice.controller;
 
+import com.example.invoice.dto.InvoiceSummaryResponse;
 import com.example.invoice.entity.Invoice;
 import com.example.invoice.service.DuplicateInvoiceException;
 import com.example.invoice.service.InvoiceService;
@@ -37,6 +38,13 @@ public class InvoiceController {
                               @RequestParam(required = false) Boolean used,
                               @RequestParam(required = false) String keyword) {
         return service.list(page, size, used, keyword);
+    }
+
+    /** 与列表同一套过滤参数的统计（张数 + 价税合计），供「未使用」合计条。 */
+    @GetMapping("/summary")
+    public InvoiceSummaryResponse summary(@RequestParam(required = false) Boolean used,
+                                          @RequestParam(required = false) String keyword) {
+        return service.summary(used, keyword);
     }
 
     @DeleteMapping("/{id}")
