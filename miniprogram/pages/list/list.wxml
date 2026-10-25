@@ -15,7 +15,7 @@
 </view>
 
 <view class="summary" wx:if="{{used === 'false' && summary}}">
-  <text>未使用 {{summary.count}} 张</text>
+  <text>共 {{summary.count}} 张</text>
   <text class="summary-amount">合计 ¥{{summary.totalWithTax}}</text>
 </view>
 

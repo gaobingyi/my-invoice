@@ -69,8 +69,8 @@ function check(name, cond) {
   await tick()
   const sc = summaryCalls()[0]
   check('请求 summary 且带 used=false', !!sc && sc.data.used === 'false')
-  check('合计数据就位', !!page.data.summary && page.data.summary.count === 9
-      && page.data.summary.totalWithTax === 10056.20)
+  check('合计数据就位（两位小数字符串）', !!page.data.summary && page.data.summary.count === 9
+      && page.data.summary.totalWithTax === '10056.20')
 
   console.log('场景 3：搜索关键词联动（500ms 防抖后带 keyword 请求）')
   page.onKeywordInput({ detail: { value: '马集' } })

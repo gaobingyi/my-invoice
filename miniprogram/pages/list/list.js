@@ -65,7 +65,8 @@ Page({
     const data = { used: 'false' }
     if (this.data.keyword) data.keyword = this.data.keyword
     request({ url: '/api/invoices/summary', data })
-      .then(summary => this.setData({ summary }))
+      // 合计固定两位小数：BigDecimal 10056.20 序列化成 JSON number 后尾零会丢失
+      .then(s => this.setData({ summary: { count: s.count, totalWithTax: Number(s.totalWithTax).toFixed(2) } }))
       .catch(() => {})
   },
 
