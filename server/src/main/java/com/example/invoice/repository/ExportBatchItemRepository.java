@@ -26,8 +26,4 @@ public interface ExportBatchItemRepository extends JpaRepository<ExportBatchItem
 
     /** 批次编辑：从指定批次移除该发票的关联。 */
     void deleteByBatchIdAndInvoiceId(Long batchId, Long invoiceId);
-
-    /** 兜底清理：直接删除发票时遗留的孤儿关联（正常走 InvoiceService.delete 会被拦截，
-     * 但脚本/直接 SQL 绕过 guard 时仍需清理，避免 batchInvoices 数量与 invoiceCount 分歧）。 */
-    void deleteByInvoiceId(Long invoiceId);
 }

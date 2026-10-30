@@ -46,6 +46,10 @@ public class WxLoginService {
                           @Value("${wx.appid:}") String appid,
                           @Value("${wx.secret:}") String secret,
                           @Value("${wx.allowed-openids:}") String allowedOpenIds) {
+        // pocfile: 超时由 spring.http.client.connect-timeout/read-timeout 统一注入到自动配置的
+        // RestClient.Builder（WxLogin 不再自己覆盖 requestFactory，以免在单测里盖掉
+        // MockRestServiceServer 装的 mock 工厂）。LLM 客户端因需要更长的 read timeout
+        // 仍自行覆盖 factory，不受影响。
         this.restClient = restClientBuilder.baseUrl("https://api.weixin.qq.com").build();
         this.objectMapper = objectMapper;
         this.jwtTokenService = jwtTokenService;

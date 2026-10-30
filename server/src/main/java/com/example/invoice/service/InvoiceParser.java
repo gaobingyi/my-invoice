@@ -81,7 +81,12 @@ public class InvoiceParser {
             layout = new Layout(pdf);
             text = layout.text;
         } catch (IOException e) {
-            if (ctx != null) ctx.setPdfError(true);
+            if (ctx != null) {
+                // pocfile: 损坏 PDF 也计入指标（uploads_pdf_error / uploads_total / 明细行），
+                // 否则 Dashboard 的「PDF 解析失败」卡片恒为 0、趋势图缺这部分样本。
+                ctx.setPdfError(true);
+                metrics.flush(ctx);
+            }
             throw e;
         }
         ParsedInvoice parsed = parseText(text);
@@ -126,13 +131,17 @@ public class InvoiceParser {
 
         Layout(Path pdf) throws IOException {
             try (PDDocument doc = Loader.loadPDF(pdf.toFile())) {
-                text = new PDFTextStripper().getText(doc);
-                getText(doc);
+                // 单次遍历：writeString 先调 super 把文本累积进 stripper 自身的输出缓冲，
+                // 同时收集字形。Layout 未改任何 stripper 配置，super.writeString 产出的
+                // 文本与独立 new PDFTextStripper() 的输出逐字一致——原先两次全文遍历，
+                // 解析耗时直接减半（上传是同步请求路径，这一步占大头）。
+                text = getText(doc);
             }
         }
 
         @Override
-        protected void writeString(String s, List<TextPosition> positions) {
+        protected void writeString(String s, List<TextPosition> positions) throws IOException {
+            super.writeString(s, positions);
             if (positions.size() == 1 && LABEL_CHARS.contains(positions.get(0).getUnicode())) return;
             for (TextPosition p : positions) {
                 glyphs.add(new Glyph(p.getXDirAdj(), p.getYDirAdj(), p.getWidthDirAdj(), p.getUnicode()));

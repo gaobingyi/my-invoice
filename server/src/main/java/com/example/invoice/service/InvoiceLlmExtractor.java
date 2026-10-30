@@ -41,8 +41,10 @@ public class InvoiceLlmExtractor {
         this.enabled = enabled;
         this.json = new ObjectMapper();
         // pocfile: bound the LLM call so a stalled local model cannot hang an upload.
+        // connect 收紧到 5s：TCP 建立阶段 60s 只会让两次重试最坏占住上传线程 ~2 分钟；
+        // read 仍用可配置值（本地大模型首 token 可能要数十秒）。
         var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(timeoutSeconds * 1000);
+        factory.setConnectTimeout(5_000);
         factory.setReadTimeout(timeoutSeconds * 1000);
         builder = builder.requestFactory(factory).baseUrl(baseUrl);
         // pocfile: opencode 按 User-Agent 限流，伪装为官方客户端绕过 429。

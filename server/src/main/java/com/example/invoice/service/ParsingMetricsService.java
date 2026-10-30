@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
@@ -50,7 +53,24 @@ public class ParsingMetricsService {
 
     // ────── flush：一次性写入两表 ──────
 
+    /** 指标落库是观测路径而非业务路径：DB 忙/异常只记 warn 绝不上抛——否则已解析成功、
+     * 文件已落盘的上传会因指标失败整体 500。@Transactional 让三条语句（计数器、JSON、
+     * 明细行）作为同一事务提交，中途失败不产生 Dashboard 与趋势图对不上的半截快照。 */
+    @Transactional
     public void flush(ParseContext ctx) {
+        try {
+            doFlush(ctx);
+        } catch (RuntimeException e) {
+            log.warn("解析指标落库失败（不影响上传）: {}", e.getMessage());
+            // 异常被 catch 后事务默认仍会提交（只带半截语句效果）。标记 rollback-only，
+            // 让本次 flush 整体回滚——计数器与明细行要么都写、要么都不写。
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            }
+        }
+    }
+
+    private void doFlush(ParseContext ctx) {
         // 1. 原子递增 parsing_metrics 各计数器
         jdbc.update("""
             UPDATE parsing_metrics SET

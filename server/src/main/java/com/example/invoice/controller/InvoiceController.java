@@ -47,6 +47,12 @@ public class InvoiceController {
         return service.summary(used, keyword);
     }
 
+    /** 单条查询（小程序详情页兜底：eventChannel 不可用时按 id 自取）。 */
+    @GetMapping("/{id}")
+    public Invoice get(@PathVariable Long id) {
+        return service.getInvoice(id);
+    }
+
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) throws IOException {
         service.delete(id);
@@ -62,15 +68,5 @@ public class InvoiceController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, mode + "; filename*=UTF-8''" + filename)
                 .contentType(MediaType.APPLICATION_PDF)
                 .body(new FileSystemResource(p));
-    }
-
-    @ExceptionHandler(DuplicateInvoiceException.class)
-    public ResponseEntity<String> duplicate(DuplicateInvoiceException e) {
-        return ResponseEntity.status(409).body(e.getMessage());
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<String> badRequest(IllegalArgumentException e) {
-        return ResponseEntity.badRequest().body(e.getMessage());
     }
 }

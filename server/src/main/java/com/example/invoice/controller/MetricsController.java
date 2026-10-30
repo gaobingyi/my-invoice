@@ -25,6 +25,7 @@ public class MetricsController {
     @GetMapping("/parsing/trend")
     public List<ParsingTrendEntry> getParsingTrend(
             @RequestParam(defaultValue = "30") int days) {
-        return metrics.getTrend(days);
+        // 钳制到 1~365：0/负数会让日期偏移算出空区间，超大值则全表聚合，都无意义
+        return metrics.getTrend(Math.min(Math.max(days, 1), 365));
     }
 }

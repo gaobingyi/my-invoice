@@ -81,9 +81,4 @@ public class ExportController {
         int restored = service.deleteBatch(id);
         return Map.of("restored", restored);
     }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public org.springframework.http.ResponseEntity<String> badRequest(IllegalArgumentException e) {
-        return org.springframework.http.ResponseEntity.badRequest().body(e.getMessage());
-    }
 }

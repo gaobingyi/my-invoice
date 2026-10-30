@@ -1,10 +1,18 @@
 spring:
   application.name: invoice-server
+  # 优雅停机：SIGTERM 后等在途请求完成（最长 30s），配合 docker stop_grace_period 35s
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   datasource:
     # date_class=TEXT：Xerial JDBC 默认按 INTEGER (epoch ms) 存 timestamp，与读侧 ISO 解析
     # 错位导致 ParseException。强制 TEXT 模式，读写都用 ISO-8601。
     url: jdbc:sqlite:./data/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
     driver-class-name: org.sqlite.JDBC
+    # SQLite 是单写者：默认 Hikari 10 连接下，「事务内先读后写」并发交错时 SQLite 立即
+    # 返回 BUSY（busy_timeout 对升级写锁的死锁不生效）→ 偶发 500。单连接让事务完全
+    # 串行，也顺带消除指标计数等 read-modify-write 的丢更新窗口。
+    hikari:
+      maximum-pool-size: 1
   jpa:
     # SQLite 类型亲和（type affinity）非严格：INTEGER 与 BIGINT、TEXT 与 VARCHAR/TIMESTAMP
     # 在 validate 阶段频繁误报。schema.sql 已是单一事实源，列名错配会被运行时的 SQL
@@ -19,6 +27,13 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
+  # RestClient.Builder 默认超时（Boot 3.4 自动应用）。
+  # WxLoginService 复用此默认（5s/10s）；InvoiceLlmExtractor 因本地大模型首 token 慢，
+  # 自行覆盖 requestFactory 保留 60s read timeout，不受这里约束。
+  http:
+    client:
+      connect-timeout: 5s
+      read-timeout: 10s
 
 upload-dir: ${UPLOAD_DIR:./uploads}
 
@@ -28,10 +43,12 @@ jwt:
 
 login:
   rate-limit-enabled: true  # 登录端点：单 IP 失败次数超阈值 → 401（内存计数，重启清零）
-  # 后端在可信反代（nginx）后置 true，限流按 X-Real-IP（CF-Connecting-IP）算真客户端 IP。
-  # 直连 / vite proxy 时保持 false：客户端可伪造 X-Real-IP 绕过限流。
-  # compose 硬编码 true；本地 dev yml 默认 false。
-  trust-proxy: false
+
+# 顶层键（不是 login.trust-proxy）：AuthController 读 ${trust-proxy}，compose 的
+# TRUST_PROXY 环境变量也经宽松绑定映射到顶层同名键——放在 login: 下会两边都读不到。
+# 后端在可信反代（nginx）后置 true，限流按 X-Real-IP（CF-Connecting-IP）算真客户端 IP。
+# 直连 / vite proxy 时保持 false：客户端可伪造 X-Real-IP 绕过限流。
+trust-proxy: ${TRUST_PROXY:false}
 
 admin:
   username: ${ADMIN_USERNAME:admin}
@@ -61,6 +78,7 @@ logging:
 
 server:
   port: 8080
+  shutdown: graceful   # SIGTERM 后等在途请求（含 SQLite 写事务）完成再退出
   tomcat:
     # 413 时吞掉剩余请求体再写响应（默认 2MB 上限会中途 RST 连接），否则经 nginx 反代时
     # 浏览器收到 502 而非 GlobalExceptionHandler 的「文件超过 10MB 限制」提示

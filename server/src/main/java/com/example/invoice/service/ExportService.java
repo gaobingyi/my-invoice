@@ -6,6 +6,7 @@ import com.example.invoice.entity.Invoice;
 import com.example.invoice.repository.ExportBatchItemRepository;
 import com.example.invoice.repository.ExportBatchRepository;
 import com.example.invoice.repository.InvoiceRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -35,6 +36,10 @@ public class ExportService {
 
     private static final Pattern MONTH = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
 
+    /** 单次批量操作的发票数上限：既是业务上限，也防超长 IN 列表触发 SQLite 单语句
+     * 绑定参数上限（老驱动 999 / 新 32766）直接 500。 */
+    private static final int MAX_IDS = 1000;
+
     private final InvoiceRepository invoiceRepository;
     private final ExportBatchRepository batchRepository;
     private final ExportBatchItemRepository itemRepository;
@@ -63,6 +68,9 @@ public class ExportService {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("请至少选择一张发票");
         }
+        if (ids.size() > MAX_IDS) {
+            throw new IllegalArgumentException("单次操作最多 " + MAX_IDS + " 张发票");
+        }
         // 跨页勾选期间被删的票容忍消失，不硬报错；全没了才拦下
         List<Invoice> invoices = new ArrayList<>(invoiceRepository.findAllById(ids));
         if (invoices.isEmpty()) {
@@ -85,7 +93,16 @@ public class ExportService {
         batch.setBatchMonth(batchMonth);
         batch.setInvoiceCount(invoices.size());
         batch.setTotalWithTax(totalWithTax);
-        batchRepository.save(batch);
+        try {
+            batchRepository.save(batch);
+        } catch (DataIntegrityViolationException e) {
+            // ux_export_batch_month 唯一索引兜底：existsByBatchMonth 检查与 save 之间的
+            // 极窄竞态窗口（单连接池下几乎不可达）在 DB 层拦下，转成与预检一致的友好提示
+            if (InvoiceService.isDuplicateKey(e)) {
+                throw new IllegalArgumentException("该批次月份已存在，不可重复创建");
+            }
+            throw e;
+        }
 
         LocalDateTime now = LocalDateTime.now();
         List<ExportBatchItem> newItems = new ArrayList<>();
@@ -131,6 +148,9 @@ public class ExportService {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("请至少选择一张发票");
         }
+        if (ids.size() > MAX_IDS) {
+            throw new IllegalArgumentException("单次操作最多 " + MAX_IDS + " 张发票");
+        }
         List<Long> distinct = ids.stream().distinct().toList();
         // 跨页勾选期间被删的票容忍消失，不硬报错；全没了才拦下
         List<Invoice> invoices = new ArrayList<>(invoiceRepository.findAllById(distinct));
@@ -163,7 +183,15 @@ public class ExportService {
             inv.setUsedAt(now);
             newItems.add(new ExportBatchItem(batchId, inv.getId()));
         }
-        itemRepository.saveAll(newItems);
+        try {
+            itemRepository.saveAll(newItems);
+        } catch (DataIntegrityViolationException e) {
+            // ux_export_batch_item_batch_invoice 唯一索引兜底（并发重复添加同一张票）
+            if (InvoiceService.isDuplicateKey(e)) {
+                throw new IllegalArgumentException("以下发票已在本批次中：（并发操作冲突，请刷新后重试）");
+            }
+            throw e;
+        }
         return recalcBatch(batch);
     }
 

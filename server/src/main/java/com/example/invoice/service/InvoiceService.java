@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -22,10 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
-import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -226,27 +224,17 @@ public class InvoiceService {
         return safePath(inv.getFilePath());
     }
 
-    /** 导出打包用：按已加载的实体解析磁盘路径。文件不存在返回 null（writeZip 记入缺失
-     * 清单而非中断整包），路径非法仍抛 IllegalArgumentException（DB 被改的防御）。 */
-    public Path resolveFileOrNull(Invoice inv) {
-        try {
-            Path p = safePath(inv.getFilePath());
-            return Files.exists(p) ? p : null;
-        } catch (IllegalArgumentException e) {
-            throw e;
-        }
+    /** 单条查询（小程序详情页兜底：eventChannel 不可用时可按 id 自取）。 */
+    public Invoice getInvoice(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("发票不存在: " + id));
     }
 
-    /** 批量解析：一次查询取回实体再逐个 safePath（防穿越逻辑与单张版一致）。 */
-    public Map<Long, Path> resolveFiles(Collection<Long> ids) {
-        Map<Long, Path> out = new LinkedHashMap<>();
-        for (Invoice inv : repository.findAllById(ids)) {
-            Path p = safePath(inv.getFilePath());
-            if (Files.exists(p)) {
-                out.put(inv.getId(), p);
-            }
-        }
-        return out;
+    /** 导出打包用：按已加载的实体解析磁盘路径。文件不存在返回 null（writeZip 记入缺失
+     * 清单而非中断整包），路径非法抛 IllegalArgumentException（DB 被改的防御）。 */
+    public Path resolveFileOrNull(Invoice inv) {
+        Path p = safePath(inv.getFilePath());
+        return Files.exists(p) ? p : null;
     }
 
     private String buildFilename(ParsedInvoice p, String originalName, String resolvedNumber) {
@@ -280,7 +268,9 @@ public class InvoiceService {
         throw new IllegalArgumentException("购买方校验失败：" + parsed);
     }
 
-    private static boolean isDuplicateKey(DataIntegrityViolationException e) {
+    /** Xerial 唯一键冲突判据（vendor code 19 + message 含 "unique"）。ExportService 的
+     * 唯一索引兜底（batch_month / batch_id+invoice_id）复用同一判据转友好提示。 */
+    static boolean isDuplicateKey(DataIntegrityViolationException e) {
         // Xerial SQLite JDBC 唯一键冲突：vendor code 恒为 19（SQLITE_CONSTRAINT），message 含
         // "UNIQUE constraint failed: <table>.<column>"。SQLState 23000 与 NOT NULL/CHECK 共享，
         // 不可单用作判据。遍历 cause 链取根 SQLException，按「错误码 + 关键字子串」双判据，
@@ -305,7 +295,10 @@ public class InvoiceService {
         return p;
     }
 
+    @Transactional
     public void delete(Long id) throws IOException {
+        // 事务把「批次引用守卫 → 删文件 → 删行」收为原子单元，与 createBatch 的写事务在
+        // 单连接池下串行，杜绝守卫通过后发票被并发批次引用、行已删而 item 残留的交错窗口。
         Invoice inv = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("发票不存在: " + id));
         // 删除前校验：发票已被批次引用时不可删除（需先删除批次或从批次中移除该票）
