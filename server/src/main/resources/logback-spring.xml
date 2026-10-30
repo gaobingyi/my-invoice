@@ -8,12 +8,15 @@
         </encoder>
     </appender>
 
-    <!-- 文件输出：按日期 + 大小滚动，保留 30 天 -->
+    <!-- 文件输出：按日期 + 大小滚动，归档压缩，保留 30 天且总量封顶（防日志卷无界膨胀） -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_FILE}</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_FILE}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <fileNamePattern>${LOG_FILE}.%d{yyyy-MM-dd}.%i.zip</fileNamePattern>
             <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+            <!-- 停机超过保留期后再启动，启动时即清理过期归档（默认要等下一次滚动） -->
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
             <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
                 <maxFileSize>10MB</maxFileSize>
             </timeBasedFileNamingAndTriggeringPolicy>

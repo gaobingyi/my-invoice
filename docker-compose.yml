@@ -31,12 +31,26 @@ services:
       # 硬编码 true（安全：仅当后端在可信反代后才 true，绝不在 .env 暴露避免误关）。
       TRUST_PROXY: "true"
       TZ: Asia/Shanghai
-      JAVA_OPTS: -Xmx256m -Xms128m -XX:+UseSerialGC -XX:MaxRAMPercentage=50
+      # Xmx 已固定堆上限，MaxRAMPercentage 在此冗余且易误导（两者同给时 Xmx 生效）
+      JAVA_OPTS: -Xmx256m -Xms128m -XX:+UseSerialGC
     volumes:
       - backend-data:/app/uploads
       - backend-logs:/app/logs
       - backend-db:/app/data
     restart: unless-stopped
+    # 覆盖 Spring 优雅停机的 30s 窗口（docker stop 默认 10s 后就 SIGKILL，等不到停机完成）
+    stop_grace_period: 35s
+    # 容器 stdout 日志限幅：logback 已写 /app/logs 卷，json-file 默认无上限会撑爆磁盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          # 堆 256m 之外给 PDFBox/POI 的原生内存与线程栈留余量，防 OOM-killer 错杀邻居
+          memory: 512m
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/auth/ping"]
       interval: 10s
@@ -51,7 +65,8 @@ services:
       dockerfile: web/Dockerfile
     container_name: invoice-nginx
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8088:8088"
     volumes:
@@ -59,6 +74,15 @@ services:
       - ./web/cf-allow.conf:/etc/nginx/cf-allow.conf:ro
       - ./certs:/etc/nginx/certs:ro
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
 volumes:
   backend-data:

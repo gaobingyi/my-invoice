@@ -5,8 +5,12 @@ set -euo pipefail
 # 脚本在 scripts/ 下，仓库根 = 脚本目录的上一级
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# 检测运行模式
-if command -v docker &>/dev/null && docker compose ps --status running 2>/dev/null | grep -q backend; then
+# 检测运行模式：用 -f 显式指向 compose 文件，避免从其它目录（如 ~）调用时
+# docker compose 找不到当前目录的 compose 文件 → 命令失败被 2>/dev/null 吞掉
+# 误判为 local 模式，反而去删 ~/server/data（不存在）并调 dev.sh start 在 VPS 上
+# 误启动一个 mvn 后端。
+if command -v docker &>/dev/null \
+   && docker compose -f "$ROOT/docker-compose.yml" ps --status running 2>/dev/null | grep -q backend; then
     MODE="docker"
 else
     MODE="local"
@@ -45,9 +49,11 @@ else
         echo "已停止"
     fi
 
-    # 删数据库（下次启动 schema.sql 自动重建）
+    # 删数据库（下次启动 schema.sql 自动重建）。WAL 模式下 dev.sh 停后端超时
+    # 可能 kill -9 留下 invoice.db-wal / -shm，残留文件与新建空库组合属未定义
+    # 场景（SQLite 不保证），一并删除。
     if [ -f "$DB" ]; then
-        rm -f "$DB"
+        rm -f "$DB" "$DB-wal" "$DB-shm"
         echo "已删除数据库"
     fi
 

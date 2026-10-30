@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 本地开发启停脚本：后端 8080 + 前端 5173
-set -euo pipefail
+# set -m 让后台作业各自成为独立进程组——stop 时 kill -- -$pgid 可一并杀掉
+# mvn spring-boot:run fork 出的 java 子进程，避免它成孤儿继续占 8080。
+set -muo pipefail
 
 # 脚本在 scripts/ 下，仓库根 = 脚本目录的上一级
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -8,6 +10,17 @@ BACKEND_PID_FILE="$ROOT/.dev-backend.pid"
 FRONTEND_PID_FILE="$ROOT/.dev-frontend.pid"
 BACKEND_LOG="$ROOT/.dev-backend.log"
 FRONTEND_LOG="$ROOT/.dev-frontend.log"
+
+# mvn/java 不在 PATH 时兜底找 ~/.local/opt（Claude Code `!` 前缀等非交互 shell 不加载
+# ~/.bashrc，用户级安装的 JDK/Maven 会缺失——找不到就快速失败，别空转 60 秒超时）。
+if ! command -v mvn >/dev/null 2>&1; then
+    if [ -x "$HOME/.local/opt/maven/bin/mvn" ]; then
+        export PATH="$HOME/.local/opt/jdk-25/bin:$HOME/.local/opt/maven/bin:$PATH"
+    else
+        echo "错误：找不到 mvn（PATH 与 ~/.local/opt 均无）。先安装 Maven 或修正 PATH。" >&2
+        exit 1
+    fi
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -50,6 +63,7 @@ start_backend() {
         sleep 1
     done
     echo -e "${RED}超时（查看 $BACKEND_LOG）${NC}"
+    return 1
 }
 
 start_frontend() {
@@ -77,12 +91,15 @@ stop_backend() {
         local pid=$(cat "$BACKEND_PID_FILE")
         if kill -0 "$pid" 2>/dev/null; then
             echo -n "停止后端 (PID $pid)... "
-            kill "$pid" 2>/dev/null
+            # kill 整个进程组（set -m 下后台作业 pgid = pid）：mvn spring-boot:run
+            # fork 出的 java 子进程在同一组，一并终止；否则它成孤儿继续占 8080，
+            # 下次 start 必然「超时」。失败回退到单 pid kill。
+            kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
             for i in $(seq 1 10); do
                 kill -0 "$pid" 2>/dev/null || break
                 sleep 1
             done
-            kill -9 "$pid" 2>/dev/null || true
+            kill -9 -- "-$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
             echo -e "${GREEN}已停止${NC}"
         fi
         rm -f "$BACKEND_PID_FILE"
