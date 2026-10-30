@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS export_batch (
 );
 
 -- 批次-发票关联。无外键（与全库风格一致）；发票被删时由 InvoiceService.delete 联动清理。
+-- (batch_id, invoice_id) 唯一：并发「向同批次重复添加同一张票」在 DB 层兜底
+-- （上方的 DELETE 先清理历史竞态可能留下的重复行，保证建唯一索引不失败）。
 CREATE TABLE IF NOT EXISTS export_batch_item (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   batch_id        INTEGER NOT NULL,
@@ -50,7 +52,32 @@ CREATE TABLE IF NOT EXISTS export_batch_item (
 );
 
 CREATE INDEX IF NOT EXISTS idx_export_batch_item_batch ON export_batch_item(batch_id);
-CREATE INDEX IF NOT EXISTS idx_invoice_date ON invoice(invoice_date);
+-- 删发票时的引用守卫（existsByInvoiceId 等）按 invoice_id 查询，需要索引
+CREATE INDEX IF NOT EXISTS idx_export_batch_item_invoice ON export_batch_item(invoice_id);
+-- 列表固定 WHERE used=? ORDER BY created_at DESC，无索引时全表扫 + 排序
+CREATE INDEX IF NOT EXISTS idx_invoice_used_created ON invoice(used, created_at DESC);
+-- idx_invoice_date 无任何查询使用（死索引，只产生写放大），显式移除老库上的同名索引
+DROP INDEX IF EXISTS idx_invoice_date;
+
+-- batch_month 唯一（文档口径「yyyy-MM 全局唯一」的 DB 层保证；先清历史竞态重复行，
+-- 保留每组最早创建的一条）。老库/新库统一走唯一索引而非 CREATE TABLE 内联 UNIQUE，
+-- 因为 IF NOT EXISTS 的建表语句不会给已存在的老表补约束。
+-- 删重复批次会使其 item 变孤儿（batch_id 指向已删行，deleteBatch 够不着），孤儿 item
+-- 会让 existsByInvoiceId 守卫永久拦截这些发票的删除 —— 必须一并清掉；清完后
+-- 「只被已删重复批次引用、现已无任何批次引用」的发票恢复未使用（同 deleteBatch 的
+-- 恢复语义），否则 used=1 永久卡死、既不能再打包也无法从批次页解除。
+DELETE FROM export_batch WHERE id NOT IN (
+  SELECT MIN(id) FROM export_batch GROUP BY batch_month
+);
+DELETE FROM export_batch_item WHERE batch_id NOT IN (SELECT id FROM export_batch);
+UPDATE invoice SET used = 0, used_at = NULL
+WHERE used = 1 AND id NOT IN (SELECT invoice_id FROM export_batch_item);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_export_batch_month ON export_batch(batch_month);
+DELETE FROM export_batch_item WHERE id NOT IN (
+  SELECT MIN(id) FROM export_batch_item GROUP BY batch_id, invoice_id
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_export_batch_item_batch_invoice
+  ON export_batch_item(batch_id, invoice_id);
 
 -- 解析指标汇总：单行计数器，id 固定为 1
 CREATE TABLE IF NOT EXISTS parsing_metrics (
