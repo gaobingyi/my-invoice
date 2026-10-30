@@ -16,7 +16,7 @@
       <p class="login-sub">上传 PDF 发票 · 自动解析 · 统一管理</p>
       <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="submit">
         <el-form-item prop="username">
-          <el-input v-model="form.username" placeholder="用户名" size="large" :prefix-icon="User" />
+          <el-input v-model="form.username" placeholder="用户名" size="large" :prefix-icon="User" @keyup.enter="submit" />
         </el-form-item>
         <el-form-item prop="password">
           <el-input
@@ -40,13 +40,14 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { login, setToken, setUsername, errorMessage } from '../api/invoice'
 import ThemeToggle from '../components/ThemeToggle.vue'
 
 const router = useRouter()
+const route = useRoute()
 const formRef = ref(null)
 const loading = ref(false)
 const form = reactive({ username: '', password: '' })
@@ -66,7 +67,8 @@ async function submit() {
     const { data } = await login(form.username, form.password)
     setToken(data.token)
     setUsername(data.username)
-    router.push('/upload')
+    // 回跳路由守卫记录的原目的地（被 401 踢来时保留现场），无则默认上传页
+    router.push(route.query.redirect || '/upload')
   } catch (e) {
     ElMessage.error(await errorMessage(e, '登录失败'))
   } finally {

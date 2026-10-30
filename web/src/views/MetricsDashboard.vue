@@ -126,6 +126,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { fetchParsingMetrics, fetchParsingTrend } from '../api/invoice'
 import { useIsMobile } from '../composables/useIsMobile'
@@ -135,10 +136,14 @@ const isMobile = useIsMobile()
 const loading = ref(false)
 const snap = ref({})
 const trend = ref([])
+// load 的序号守卫（避免快速点刷新时旧响应覆盖新）
+let loadSeq = 0
 
 const regexRate = computed(() => pctNum(snap.value.regex?.success, (snap.value.regex?.success ?? 0) + (snap.value.regex?.failure ?? 0)))
 const fillRate = computed(() => pctNum(snap.value.llm?.fillSuccess, snap.value.llm?.triggered ?? 0))
 const apiRate = computed(() => pctNum(snap.value.llm?.apiSuccess, (snap.value.llm?.apiSuccess ?? 0) + (snap.value.llm?.apiFailure ?? 0)))
+// 提到 computed：原 barWidth 每行都 Math.max(...trend.map(...))，n 行 O(n²)
+const trendMax = computed(() => Math.max(...trend.value.map(d => d.uploads), 1))
 
 const FIELD_LABELS = {
   invoiceNumber: '发票号码',
@@ -171,8 +176,7 @@ function pct(num, den) {
 }
 
 function barWidth(uploads) {
-  const max = Math.max(...trend.value.map(d => d.uploads), 1)
-  return Math.round((uploads / max) * 100) + '%'
+  return Math.round((uploads / trendMax.value) * 100) + '%'
 }
 
 function formatShortDate(d) {
@@ -182,16 +186,20 @@ function formatShortDate(d) {
 }
 
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   try {
     const [metricsRes, trendRes] = await Promise.all([
       fetchParsingMetrics(),
       fetchParsingTrend(30)
     ])
+    if (seq !== loadSeq) return
     snap.value = metricsRes.data
     trend.value = trendRes.data
+  } catch (e) {
+    if (seq === loadSeq) ElMessage.error('加载解析指标失败')
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 

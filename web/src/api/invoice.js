@@ -20,7 +20,9 @@ export function setUsername(name) {
   else localStorage.removeItem('username')
 }
 
-const http = axios.create({ baseURL: '/api' })
+// 默认超时 30s：请求挂起时 loading/spinner 不会无限卡死。
+// 大文件/长任务（上传含 LLM 兜底、ZIP 下载、PDF 预览）按场景在调用处单独放宽。
+const http = axios.create({ baseURL: '/api', timeout: 30000 })
 
 http.interceptors.request.use(cfg => {
   const token = getToken()
@@ -49,9 +51,10 @@ export function login(username, password) {
 export function uploadInvoice(file) {
   const form = new FormData()
   form.append('file', file)
-  return http.post('/invoices/upload', form, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
+  // 不手动设 Content-Type：axios 对 FormData 会自动带正确 boundary；手写无 boundary
+  // 的值依赖 axios 内部纠正，升级/换适配器时是隐患。
+  // 超时放宽到 3 分钟：multipart 接收 + PDFBox 解析 + LLM 兜底（read timeout 60s，两次重试）。
+  return http.post('/invoices/upload', form, { timeout: 180000 })
 }
 
 export function listInvoices(page, size, used, keyword) {
@@ -112,7 +115,11 @@ export function removeBatchInvoice(batchId, invoiceId) {
 }
 
 export async function fetchBatchZip(id) {
-  const { data } = await http.get(`/export-batches/${id}/zip`, { responseType: 'blob' })
+  // 大包可能几十 MB，放宽到 5 分钟；下载由浏览器的进度反馈，不会无感卡死
+  const { data } = await http.get(`/export-batches/${id}/zip`, {
+    responseType: 'blob',
+    timeout: 300000
+  })
   return data
 }
 
@@ -135,7 +142,8 @@ export function fetchParsingTrend(days = 30) {
 export async function fetchFile(id, disposition = 'inline') {
   const { data } = await http.get(`/invoices/${id}/file`, {
     params: { disposition },
-    responseType: 'blob'
+    responseType: 'blob',
+    timeout: 60000
   })
   return { url: URL.createObjectURL(data), blob: data }
 }

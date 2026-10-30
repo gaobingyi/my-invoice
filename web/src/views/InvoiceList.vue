@@ -164,7 +164,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
@@ -186,6 +186,8 @@ const loading = ref(false)
 const usedFilter = ref('unused')
 const keyword = ref('')
 let searchTimer = null
+// load 的序号守卫（见 load()）
+let loadSeq = 0
 
 const pdfPreviewRef = ref(null)
 
@@ -197,7 +199,8 @@ const exporting = ref(false)
 const exportMonth = ref(currentMonth())
 
 const selectedSum = computed(() =>
-  selected.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0)
+  // 按分累加再除回，避免 0.1+0.2 类浮点误差经 money() 截断后与单行四舍五入差一分
+  selected.value.reduce((acc, r) => acc + Math.round((parseFloat(r.totalWithTax) || 0) * 100), 0) / 100
 )
 
 const downloadingId = ref(null)
@@ -248,17 +251,22 @@ async function submitExport() {
 }
 
 async function load() {
+  // 序号守卫：翻页/切筛选/搜索并发时，旧响应不再覆盖新数据、loading 也不提前复位
+  const seq = ++loadSeq
   loading.value = true
   try {
     // 全部 → 不传 used；未使用 → used=false
     const used = usedFilter.value === 'all' ? undefined : false
     const { data } = await listInvoices(currentPage.value - 1, pageSize.value, used, keyword.value.trim() || undefined)
+    if (seq !== loadSeq) return
     rows.value = data.content
     total.value = data.totalElements
     // 移动端卡片没有 el-table 的 selection-change 兜底，翻页/刷新后手动清空残留勾选
     selected.value = []
+  } catch (e) {
+    if (seq === loadSeq) ElMessage.error(await errorMessage(e, '加载发票列表失败'))
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -318,6 +326,11 @@ async function confirmDelete(row) {
 }
 
 onMounted(load)
+
+onBeforeUnmount(() => {
+  // 离开页面时清掉还在等待的搜索防抖，否则它会在卸载后触发一次浪费的 load
+  clearTimeout(searchTimer)
+})
 
 watch(usedFilter, () => {
   currentPage.value = 1

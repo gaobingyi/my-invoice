@@ -19,7 +19,8 @@ const router = createRouter({
 
 router.beforeEach(to => {
   if (!to.meta.public && !getToken()) {
-    return { path: '/login' }
+    // 带 redirect：登录成功后回跳原目的地，避免被 401 整页踢到登录后丢失现场路径
+    return { path: '/login', query: to.fullPath !== '/' ? { redirect: to.fullPath } : undefined }
   }
   if (to.path === '/login' && getToken()) {
     return { path: '/upload' }

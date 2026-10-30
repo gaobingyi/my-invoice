@@ -220,6 +220,8 @@ const currentPage = ref(1)
 const pageSize = 20
 const loading = ref(false)
 const downloadingId = ref(null)
+// load 的序号守卫（见 load()）
+let loadSeq = 0
 
 // ===== 批次预览 =====
 const previewVisible = ref(false)
@@ -233,7 +235,7 @@ const previewTitle = computed(() =>
   previewBatch.value ? `批次预览 - ${previewBatch.value.batchMonth}（${previewBatch.value.invoiceCount} 张）` : '批次预览'
 )
 const previewTotal = computed(() =>
-  previewRows.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0)
+  previewRows.value.reduce((acc, r) => acc + Math.round((parseFloat(r.totalWithTax) || 0) * 100), 0) / 100
 )
 
 async function openPreview(batch) {
@@ -270,7 +272,7 @@ const editTitle = computed(() =>
   editBatch.value ? `编辑批次 - ${editBatch.value.batchMonth}` : '编辑批次'
 )
 const editTotal = computed(() =>
-  editRows.value.reduce((acc, r) => acc + (parseFloat(r.totalWithTax) || 0), 0)
+  editRows.value.reduce((acc, r) => acc + Math.round((parseFloat(r.totalWithTax) || 0) * 100), 0) / 100
 )
 
 function invoiceLabel(inv) {
@@ -320,10 +322,15 @@ async function reloadEditRows(batchId) {
 async function addSelected() {
   adding.value = true
   try {
-    const { data } = await addBatchInvoices(editBatch.value.id, selectedIds.value)
+    const added = selectedIds.value
+    const { data } = await addBatchInvoices(editBatch.value.id, added)
     applyBatch(data)
     selectedIds.value = []
-    await reloadEditRows(editBatch.value.id)
+    await reloadBatchItems(editBatch.value.id)
+    // 增量更新待选列表：刚加入批次的票已 used，从待选中剔除即可，不必全量重拉
+    // （几千张票时省掉几十个分页请求 + 重建大数组）
+    const addedSet = new Set(added)
+    availableInvoices.value = availableInvoices.value.filter(i => !addedSet.has(i.id))
     ElMessage.success('添加成功')
   } catch (e) {
     ElMessage.error(await errorMessage(e, '添加失败'))
@@ -345,21 +352,33 @@ async function removeInvoice(row) {
   try {
     const { data } = await removeBatchInvoice(editBatch.value.id, row.id)
     applyBatch(data)
-    await reloadEditRows(editBatch.value.id)
+    await reloadBatchItems(editBatch.value.id)
+    // 增量：移除的票恢复为未使用，加回待选列表（无需全量重拉）
+    availableInvoices.value = [...availableInvoices.value, row]
     ElMessage.success('移除成功')
   } catch (e) {
     ElMessage.error(await errorMessage(e, '移除失败'))
   }
 }
 
+/** 增量刷新：仅重拉批次内明细（小集合），不重拉全部未使用发票。 */
+async function reloadBatchItems(batchId) {
+  const { data } = await listBatchInvoices(batchId)
+  editRows.value = data
+}
+
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   try {
     const { data } = await listExportBatches(currentPage.value - 1, pageSize)
+    if (seq !== loadSeq) return
     rows.value = data.content
     total.value = data.totalElements
+  } catch (e) {
+    if (seq === loadSeq) ElMessage.error(await errorMessage(e, '加载导出记录失败'))
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 

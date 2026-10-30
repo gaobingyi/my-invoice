@@ -46,6 +46,10 @@ const rows = ref([])
 const index = ref(-1)
 const rendered = ref(false)
 
+// 请求序号守卫：快速翻张 / 打开新预览时，过期响应（含其 object URL）丢弃并 revoke，
+// 不覆盖最新结果；弹窗关闭时也自增，让在途响应不再把弹窗「复活」成空状态。
+let loadSeq = 0
+
 const hasPrev = computed(() => index.value > 0)
 const hasNext = computed(() => index.value >= 0 && index.value < rows.value.length - 1)
 const navLabel = computed(() =>
@@ -61,18 +65,25 @@ defineExpose({
 })
 
 async function loadRow(row, idx) {
+  const seq = ++loadSeq
   // 替换前先 revoke，避免连续预览时上一次的 blob 驻留内存
   if (url.value) URL.revokeObjectURL(url.value)
   url.value = ''
   rendered.value = false
   try {
     const { url: u } = await fetchFile(row.id, 'inline')
+    // 过期响应：被更新的 loadRow 或 onClosed 自增了 loadSeq —— 立即 revoke 其 URL，
+    // 不覆盖当前显示、不重开已关闭的弹窗
+    if (seq !== loadSeq) {
+      URL.revokeObjectURL(u)
+      return
+    }
     url.value = u
     index.value = idx
     title.value = `发票预览 - ${row.invoiceNumber}`
     visible.value = true
-  } catch {
-    ElMessage.error('加载预览失败')
+  } catch (e) {
+    if (seq === loadSeq) ElMessage.error('加载预览失败')
   }
 }
 
@@ -83,6 +94,8 @@ function go(delta) {
 }
 
 function onClosed() {
+  // 自增使任何在途 loadRow 失效（不再 visible.value = true 把弹窗「复活」）
+  loadSeq++
   // destroy-on-close 销毁 iframe，但 blob URL 需手动 revoke 才释放 PDF 字节
   if (url.value) {
     URL.revokeObjectURL(url.value)

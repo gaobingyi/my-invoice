@@ -182,12 +182,10 @@ router.isReady().finally(() => { routeReady.value = true })
 function onMenuSelect(index) {
   const hit = MENU_ROUTES.find(m => m.index === index)
   router.push(hit ? hit.prefix : '/upload')
-  // 移动端选完即收抽屉；桌面收窄屏时折叠侧栏
+  // 移动端选完即收抽屉。桌面端折叠态由用户用 toggle 按钮控制（不再在选菜单时自动折叠——
+  // 原 else if 用 (max-width: 768px) 判定，但 isMobile 已是同条件，该分支恒不可达）。
   if (isMobile.value) {
     drawerVisible.value = false
-  } else if (window.matchMedia('(max-width: 768px)').matches) {
-    collapsed.value = true
-    localStorage.setItem('sidebarCollapsed', 'true')
   }
 }
 
@@ -214,7 +212,8 @@ function onSidebarLeave() {
 
 onMounted(() => {
   applyTheme()
-  if (window.matchMedia('(max-width: 768px)').matches && !localStorage.getItem('sidebarCollapsed')) {
+  // 移动端默认折叠侧栏（断点取自 useIsMobile 的 --bp-mobile，不再硬编码 768）
+  if (isMobile.value && !localStorage.getItem('sidebarCollapsed')) {
     collapsed.value = true
   }
 })
