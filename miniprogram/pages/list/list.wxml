@@ -22,7 +22,7 @@
 <view class="card item" wx:for="{{invoices}}" wx:key="id" bindtap="openDetail" data-id="{{item.id}}">
   <view class="row1">
     <text class="seller">{{item.sellerName || '未知销售方'}}</text>
-    <text class="amount">¥{{item.totalWithTax}}</text>
+    <text class="amount">¥{{item.totalWithTaxText || item.totalWithTax}}</text>
   </view>
   <view class="row2">
     <text class="number">No.{{item.invoiceNumber}}</text>

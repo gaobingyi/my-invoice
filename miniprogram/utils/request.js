@@ -64,20 +64,33 @@ function makeError(res) {
   return err
 }
 
+/**
+ * 处理 401：只清「确实是这次请求被拒的那个 token」——多个并发请求同时 401 时，
+ * 第一个重登成功后 setToken(新token)；迟到的 401 若无条件 setToken(null) 会清掉新
+ * token 触发又一轮 wx.login。比较 tokenUsed === 当前 token 才清，避免冗余登录。
+ * 返回 true 表示已触发重试（调用方应 return），false 表示非 401 或已重试过。
+ */
+function handle401(res, tokenUsed, retried, retry) {
+  if (res.statusCode !== 401 || retried) return false
+  if (getToken() === tokenUsed) setToken(null)
+  retry()
+  return true
+}
+
 /** Promise 化 wx.request，自动带 Bearer；401 时清 token 重登并重放一次。 */
 function request(options, retried) {
   return ensureToken().then(() => new Promise((resolve, reject) => {
+    const tokenUsed = getToken()
     wx.request({
       url: BASE_URL + options.url,
       method: options.method || 'GET',
       data: options.data,
-      header: Object.assign({ Authorization: 'Bearer ' + getToken() }, options.header || {}),
+      // undefined → 走系统默认 60s；调用方可按 options.timeout 放宽（如导出/慢接口）
+      timeout: options.timeout,
+      header: Object.assign({ Authorization: 'Bearer ' + tokenUsed }, options.header || {}),
       success: res => {
-        if (res.statusCode === 401 && !retried) {
-          setToken(null)
-          request(options, true).then(resolve).catch(reject)
-          return
-        }
+        if (handle401(res, tokenUsed, retried, () =>
+          request(options, true).then(resolve).catch(reject))) return
         if (res.statusCode >= 200 && res.statusCode < 300) resolve(res.data)
         else reject(makeError(res))
       },
@@ -86,16 +99,20 @@ function request(options, retried) {
   }))
 }
 
-/** 上传发票 PDF。注意 multipart 字段名必须是 file（后端 @RequestParam("file")）。 */
-function uploadInvoice(filePath) {
+/** 上传发票 PDF。注意 multipart 字段名必须是 file（后端 @RequestParam("file")）。
+ *  与 request 一样做 401 重登重放（原实现漏了，token 过期后首次上传直接失败）。 */
+function uploadInvoice(filePath, retried) {
   return ensureToken().then(() => new Promise((resolve, reject) => {
+    const tokenUsed = getToken()
     wx.uploadFile({
       url: BASE_URL + '/api/invoices/upload',
       filePath,
       name: 'file',
-      header: { Authorization: 'Bearer ' + getToken() },
+      header: { Authorization: 'Bearer ' + tokenUsed },
       timeout: 120000, // LLM 解析需要数秒~数十秒
       success: res => {
+        if (handle401(res, tokenUsed, retried, () =>
+          uploadInvoice(filePath, true).then(resolve).catch(reject))) return
         if (res.statusCode >= 200 && res.statusCode < 300) {
           try { resolve(JSON.parse(res.data)) } catch (e) { resolve(null) }
         } else reject(makeError(res))
@@ -105,15 +122,18 @@ function uploadInvoice(filePath) {
   }))
 }
 
-/** 下载发票原 PDF（带 header，勿用裸 URL）。返回临时文件路径。 */
-function downloadInvoiceFile(id) {
+/** 下载发票原 PDF（带 header，勿用裸 URL）。同样补 401 重登重放。返回临时文件路径。 */
+function downloadInvoiceFile(id, retried) {
   return ensureToken().then(() => new Promise((resolve, reject) => {
+    const tokenUsed = getToken()
     wx.downloadFile({
       url: BASE_URL + '/api/invoices/' + id + '/file',
-      header: { Authorization: 'Bearer ' + getToken() },
+      header: { Authorization: 'Bearer ' + tokenUsed },
       success: res => {
+        if (handle401(res, tokenUsed, retried, () =>
+          downloadInvoiceFile(id, true).then(resolve).catch(reject))) return
         if (res.statusCode === 200) resolve(res.tempFilePath)
-        else reject(new Error('下载失败 ' + res.statusCode))
+        else reject(makeError(res))
       },
       fail: () => reject(new Error('下载失败，请检查网络'))
     })

@@ -1,35 +1,67 @@
 const { request, downloadInvoiceFile } = require('../../utils/request')
 
+// BigDecimal 10056.20 经 JSON number 序列化丢尾零 → 显示 10056.2；统一两位小数
+function fmtMoney(v) {
+  if (v === null || v === undefined || v === '') return '—'
+  const n = Number(v)
+  return isNaN(n) ? '—' : n.toFixed(2)
+}
+
 Page({
   data: {
     invoice: null,
+    loading: true,
+    loadError: false,
     previewing: false,
     deleting: false
   },
 
-  onLoad() {
-    // 列表页通过 eventChannel 传入 invoice 对象（后端无 GET /api/invoices/{id} 端点）
-    const channel = this.getOpenerEventChannel()
-    channel.on('invoice', invoice => {
-      const f = v => (v === null || v === undefined || v === '' ? '—' : v)
-      this.setData({
-        invoice,
-        fields: [
-          { label: '销售方', value: f(invoice.sellerName) },
-          { label: '销售方税号', value: f(invoice.sellerTaxId) },
-          { label: '购买方', value: f(invoice.buyerName) },
-          { label: '购买方税号', value: f(invoice.buyerTaxId) },
-          { label: '发票号码', value: f(invoice.invoiceNumber) },
-          { label: '开票日期', value: f(invoice.invoiceDate) },
-          { label: '金额', value: f(invoice.totalAmount) },
-          { label: '税额', value: f(invoice.taxAmount) },
-          { label: '价税合计', value: f(invoice.totalWithTax) },
-          { label: '分类', value: f(invoice.category) },
-          { label: '使用状态', value: invoice.used ? '已使用' : '未使用' }
-        ]
-      })
-      wx.setNavigationBarTitle({ title: invoice.sellerName || '发票详情' })
+  onLoad(query) {
+    // 优先用 eventChannel 传入的 invoice（首屏快、免一次往返）；
+    // 不可用时（分享卡片直达、小程序重启直达等无 opener 场景）按 id 走新端点兜底。
+    const channel = this.getOpenerEventChannel && this.getOpenerEventChannel()
+    if (channel && typeof channel.on === 'function') {
+      channel.on('invoice', invoice => this.applyInvoice(invoice))
+    }
+    if (query && query.id) {
+      request({ url: '/api/invoices/' + query.id })
+        .then(invoice => {
+          // eventChannel 已先到则不覆盖（同一条数据覆盖也无害，但省一次 setData）
+          if (!this.data.invoice) this.applyInvoice(invoice)
+        })
+        .catch(() => {
+          if (!this.data.invoice) this.setData({ loading: false, loadError: true })
+        })
+        .finally(() => {
+          if (!this.data.invoice) this.setData({ loading: false })
+        })
+    } else if (!channel || typeof channel.on !== 'function') {
+      // 无 id 且无 eventChannel：没有数据来源
+      this.setData({ loading: false, loadError: true })
+    }
+  },
+
+  applyInvoice(invoice) {
+    const f = v => (v === null || v === undefined || v === '' ? '—' : v)
+    this.setData({
+      invoice,
+      loading: false,
+      loadError: false,
+      fields: [
+        { label: '销售方', value: f(invoice.sellerName) },
+        { label: '销售方税号', value: f(invoice.sellerTaxId) },
+        { label: '购买方', value: f(invoice.buyerName) },
+        { label: '购买方税号', value: f(invoice.buyerTaxId) },
+        { label: '发票号码', value: f(invoice.invoiceNumber) },
+        { label: '开票日期', value: f(invoice.invoiceDate) },
+        { label: '金额', value: fmtMoney(invoice.totalAmount) },
+        { label: '税额', value: fmtMoney(invoice.taxAmount) },
+        { label: '价税合计', value: fmtMoney(invoice.totalWithTax) },
+        { label: '分类', value: f(invoice.category) },
+        { label: '使用状态', value: invoice.used ? '已使用' : '未使用' }
+      ]
     })
+    wx.setNavigationBarTitle({ title: invoice.sellerName || '发票详情' })
   },
 
   previewPdf() {

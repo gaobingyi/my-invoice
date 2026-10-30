@@ -11,3 +11,6 @@
     <button class="delete-btn" bindtap="confirmDelete" disabled="{{deleting}}">删除</button>
   </view>
 </view>
+
+<view class="state loading" wx:elif="{{loading}}">加载中…</view>
+<view class="state" wx:else>发票信息加载失败</view>
