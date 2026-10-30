@@ -59,11 +59,15 @@ const SHOT_DIR = path.join(__dirname, 'screenshots')
 fs.mkdirSync(SHOT_DIR, { recursive: true })
 
 const BASE = 'http://localhost:5173'
-const CHROME = '/usr/bin/google-chrome-stable'
-// 样例发票位于仓库根 invoice_examples/，用 __dirname 相对定位，避免依赖机器/账号路径
+const CHROME = process.env.E2E_CHROME || '/usr/bin/google-chrome-stable'
+// 样例发票位于仓库根 invoice_examples/，用 __dirname 相对定位，避免依赖机器/账号路径。
+// fixture 是 gitignored 的，其他机器上可用 E2E_SAMPLE/E2E_SAMPLE2 指向替代 PDF，
+// 并用 E2E_SELLER1/E2E_SELLER2 覆盖下方两条卖家名断言。
 const INV_EX = path.join(__dirname, '../../invoice_examples')
-const SAMPLE = path.join(INV_EX, '_餐饮服务_餐饮服务_-2026年05月26日-201.00.pdf')
-const SAMPLE2 = path.join(INV_EX, '260331_178.00_深圳市美之高实业发展有限公司.pdf')
+const SAMPLE = process.env.E2E_SAMPLE || path.join(INV_EX, '_餐饮服务_餐饮服务_-2026年05月26日-201.00.pdf')
+const SAMPLE2 = process.env.E2E_SAMPLE2 || path.join(INV_EX, '260331_178.00_深圳市美之高实业发展有限公司.pdf')
+const SELLER1 = process.env.E2E_SELLER1 || '扬州滋奇奥邦餐饮管理有限公司'
+const SELLER2 = process.env.E2E_SELLER2 || '深圳市美之高实业发展有限公司'
 const INVOICE_NUMBER = '26322000004144614676'
 
 let pass = 0, fail = 0
@@ -78,8 +82,8 @@ console.log('0) 清理数据库')
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,
-  // 默认 headed on Xvfb（真实浏览器行为）；无 Xvfb 的机器可用 E2E_HEADLESS=1 走 new headless
-  headless: process.env.E2E_HEADLESS ? 'new' : false,
+  // 默认 headed on Xvfb（真实浏览器行为）；无 Xvfb 的机器可用 E2E_HEADLESS=1 走 headless
+  headless: process.env.E2E_HEADLESS ? true : false,
   args: ['--no-sandbox', '--disable-gpu', '--window-size=1400,900']
 })
 
@@ -92,13 +96,10 @@ try {
   page.on('console', m => {
     if (m.type() !== 'error') return
     const txt = m.text()
-    // favicon + aborted navigation noise; keep everything else
-    if (txt.includes('favicon') || txt.includes('Failed to load resource')) {
-      const req = m.location()
-      errors.push(`console-error: ${txt} @${req.url}`)
-    } else {
-      errors.push(txt)
-    }
+    // favicon 与被中断的资源加载是噪音（预览 blob 关闭、4xx 资源等），不计入失败断言。
+    // 原实现两个分支都 push，等于没过滤。
+    if (txt.includes('favicon') || txt.includes('Failed to load resource')) return
+    errors.push(txt)
   })
 
   // --- 0. auth guard: 未登录访问 / 跳 /login ---
@@ -147,8 +148,8 @@ try {
   check(`批量上传后行数 ${rowsBefore} → ${rowsAfter}`, rowsAfter >= rowsBefore + 2)
   // verify both sellers rendered
   const sellerNames = await page.$$eval('tbody tr', trs => trs.map(tr => tr.innerText))
-  check('含餐饮发票', sellerNames.some(t => t.includes('扬州滋奇奥邦餐饮管理有限公司')))
-  check('含美之高发票', sellerNames.some(t => t.includes('深圳市美之高实业发展有限公司')))
+  check(`含样票1卖家 ${SELLER1}`, sellerNames.some(t => t.includes(SELLER1)))
+  check(`含样票2卖家 ${SELLER2}`, sellerNames.some(t => t.includes(SELLER2)))
   await page.screenshot({ path: path.join(SHOT_DIR, '2-after-upload.png') })
 
   // --- 3. preview ---
@@ -165,7 +166,10 @@ try {
   // buttons: 预览, 下载, 删除
   const previewBtn = cellBtns[texts.findIndex(t => t.includes('预览'))]
   if (!previewBtn) throw new Error('preview button not found; texts=' + JSON.stringify(texts))
-  await previewBtn.click()
+  // el-table fixed="right" 是 sticky 粘性列：elementHandle.click() 先 scrollIntoView 再按
+  // 计算坐标派发鼠标事件，容器滚动/粘性偏移会让点击落到别处（实测事件根本不进页面）。
+  // 行内操作按钮统一用 DOM 层 click，绕开坐标。
+  await previewBtn.evaluate(el => el.click())
   await page.waitForSelector('.el-dialog', { timeout: 5000 })
   await new Promise(r => setTimeout(r, 1500))
   const hasIframe = await page.$eval('.el-dialog iframe', f => !!f).catch(() => false)
@@ -191,7 +195,7 @@ try {
   const texts2 = await Promise.all(btns2.map(b => b.evaluate(el => el.textContent)))
   const downloadBtn = btns2[texts2.findIndex(t => t.includes('下载'))]
   if (!downloadBtn) throw new Error('download button not found')
-  await downloadBtn.click()
+  await downloadBtn.evaluate(el => el.click())  // 同预览：fixed 列内不用坐标点击
   await new Promise(r => setTimeout(r, 1500))
   check(
     `下载触发 attachment (${downloaded ? downloaded.filename : 'none'})`,
@@ -207,12 +211,12 @@ try {
   const texts3 = await Promise.all(btns3.map(b => b.evaluate(el => el.textContent)))
   const delBtn = btns3[texts3.findIndex(t => t.includes('删除'))]
   if (!delBtn) throw new Error('delete button not found')
-  await delBtn.click()
+  await delBtn.evaluate(el => el.click())  // 同预览：fixed 列内不用坐标点击
   await page.waitForSelector('.el-message-box', { timeout: 5000 })
   await page.screenshot({ path: path.join(SHOT_DIR, '5-confirm.png') })
   // click confirm (删除 in messagebox footer)
   const confirm = await page.$('.el-message-box__btns .el-button--danger, .el-message-box__btns button:last-child')
-  await confirm.click()
+  await confirm.evaluate(el => el.click())  // message-box 悬浮层同理，绕开坐标派发
   await page.waitForFunction(
     (n) => document.querySelectorAll('tbody tr').length < n,
     { timeout: 10000 }, countBefore

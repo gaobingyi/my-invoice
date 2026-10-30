@@ -49,6 +49,7 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 
 - **根 `.env`**（gitignored，模板 `.env.example`）：docker compose 变量源。`JWT_SECRET`、`ADMIN_PASSWORD` 均为 `:?` **必填**，缺任一 compose 直接拒绝启动。还含 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`WX_*`。SQLite 是文件式，无 DB 凭据（旧 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除）。
 - SQLite 连接（`./data/invoice.db`，WAL 模式）与 LLM 默认配置在 `server/src/main/resources/application.yml`；`LLM_API_KEY` 在 yml 也有 dev default（个人 dev key），本地不起后端可不 source。容器内由 compose 环境变量覆盖（DB `/app/data/invoice.db`、LLM 走 `LLM_BASE_URL`）。
+- Hikari `maximum-pool-size: 1`：SQLite 单写者，多连接下「事务内先读后写」并发交错会立即 BUSY（busy_timeout 对升级写锁的死锁不生效）。单连接让事务串行，顺带消除指标计数等 read-modify-write 的丢更新窗口。
 - JDBC URL 必须带 `date_class=TEXT`：Xerial 默认按 INTEGER（epoch ms）存 timestamp，与读侧 ISO-8601 解析错位会抛 ParseException。
 - LLM 兜底调用任意 OpenAI chat-completions 兼容服务，`llm.base-url` 可配（当前指向 `https://opencode.ai/zen/v1`，model `big-pickle`）。`LLM_ENABLED=false` 可关闭。
 - E2E 需要 `google-chrome-stable`（`/usr/bin/google-chrome-stable`）与 Xvfb 虚拟显示；样例 PDF 在 `invoice_examples/`（gitignored，E2E 用 `__dirname` 相对定位）。
@@ -64,7 +65,8 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 
 - `UPLOAD_DIR` **故意不进 `.env`**：它在容器里是卷挂载点（`/app/uploads`），改了 `.env` 但卷没挂到新路径会导致文件落 tmpfs、重启丢失且 DB 留孤儿行。改上传路径要连 `docker-compose.yml` 的 volume 一起改。
 - `TRUST_PROXY` 在 compose 里**硬编码 true**（不在 `.env` 暴露，避免误关）：仅当 backend 在可信反代后才可信 `X-Real-IP`。
-- nginx 对外 8088 + `certs/origin.pem`（Cloudflare Origin Cert）+ `web/cf-allow.conf` IP 白名单。nginx 用 `CF-Connecting-IP` 回填 `X-Real-IP`（`map` 指令），让限流按访客真实 IP 而非 CF 边缘节点 IP 计数。改端口/证书注意 compose 卷挂载（`nginx.conf`/`cf-allow.conf`/`certs` 均为只读 bind mount，改 conf 重启容器即可，无需重建镜像）。
+- nginx 对外 8088 + `certs/origin.pem`（Cloudflare Origin Cert）+ `web/cf-allow.conf`（2026-10 起**只含 CF IP 段**）。nginx 用 `CF-Connecting-IP` 回填 `X-Real-IP`（`map` 指令），让限流按访客真实 IP 而非 CF 边缘节点 IP 计数。改端口/证书注意 compose 卷挂载（`nginx.conf`/`cf-allow.conf`/`certs` 均为只读 bind mount，改 conf 重启容器即可，无需重建镜像）。
+- 源站双层闸门（详见 `docs/deploy-dns.md` §8）：① SNI/Host 兜底——`default_server` + `ssl_reject_handshake`，裸 IP/无 SNI 连接握手即拒；② **Authenticated Origin Pulls**（Global mTLS，`ssl_verify_client on`，CA 为 `certs/cf-origin-pull-ca.pem`）——无 CF client 证书的连接（VPS localhost、本机直连在内）一律 **400**，先于 IP 白名单。一切自检/联调走 `https://invoice.bingyi.dpdns.org`，直连探测只会得到 400/握手拒绝。日后若改回 cloudflared Tunnel，需先关 AOP 两行（Tunnel 不出示 client 证书）。
 - nginx 缓存策略：`index.html` 加 `Cache-Control: no-cache`（入口 HTML 缓存旧版会导致发版后浏览器跑旧 JS——新解析数据配旧渲染逻辑），`/assets/` 加 `immutable` 一年长缓存（Vite 产物带内容 hash）。
 - 三种公网方案见 `docs/deploy-dns.md`（DNS + Origin Rules + Origin Cert，当前采用）、`docs/deploy-tunnel.md`（cloudflared）、`DEPLOY.md`（综合指南）。
 
@@ -145,7 +147,7 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 
 - 登录：`POST /api/auth/login`（body `{username,password}`）→ `{token,username}`。**公开**路径只有 `/api/auth/**`（含 `GET /api/auth/ping`，供 Docker healthcheck），其余 `/api/**` 一律 401。
 - 用户表 `app_user`：单管理员，`AuthService.run`（CommandLineRunner）若无用户则 seed（`ADMIN_USERNAME`/`ADMIN_PASSWORD` 覆盖，默认 `admin`/`admin123`），BCrypt 散列。密码错误 → `BadCredentialsException` → 401。
-- 登录限流：`LoginRateLimiter`（内存计数，按 IP+用户名，`login.rate-limit-enabled` 默认开启），防暴力破解。
+- 登录限流：`LoginRateLimiter`（内存计数，按 IP，`login.rate-limit-enabled` 默认开启），防暴力破解。
 - 认证链路：`JwtAuthenticationFilter`（Bearer 解析 → `SecurityContextHolder`）→ `JwtTokenService`（jjwt，secret 从 `JWT_SECRET` 读，默认值仅限 dev，`expire-seconds: 86400`）。CSRF 关闭、无 Session（STATELESS）。
 - 客户端 IP 解析 `AuthController.clientIp()`：`trust-proxy=true` 时取 `X-Real-IP`（由 nginx 覆盖），否则 `getRemoteAddr()`。**不用 `X-Forwarded-For`**：它会追加客户端自带的 XFF，取 `split(",")[0]` 是可伪造值，能绕过限流并定向陷害某 IP。
 - **文件端点带不了 header**：预览/下载前端用 `fetchFile()`（axios `responseType: 'blob'`）取回 object URL，不再用裸 URL 字符串。改前端勿退回 `fileUrl()` 裸链。
@@ -157,6 +159,7 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 - `POST /api/invoices/upload`（multipart `file`，≤10MB）
 - `GET /api/invoices?page=&size=&used=&keyword=`（分页，按 createdAt 倒序；`used` 过滤已使用标记；`keyword` 对销售方/购买方/发票号码/项目名称模糊匹配，LIKE 通配符已转义；`size` 上限 100）
 - `GET /api/invoices/summary?used=&keyword=`（与列表同一套过滤参数的张数 + 价税合计，过滤逻辑在 `InvoiceService.filterSpec` 与列表共用；小程序「未使用」tab 的合计条用，null 金额不计入合计）
+- `GET /api/invoices/{id}`（单条查询，小程序详情页 eventChannel 不可用时的兜底）
 - `DELETE /api/invoices/{id}`
 - `GET /api/invoices/{id}/file?disposition=inline|download`（预览/下载）
 - `POST /api/export-batches`（body `{ids, batchMonth}`）、`GET /api/export-batches?page=&size=`
@@ -181,8 +184,9 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 - 登录无感：`app.js` onLaunch 静默 `wx.login()` code → `POST /api/auth/wx-login`（`WxLoginService`，code2session）→ openid 白名单（`WX_ALLOWED_OPENIDS`，逗号分隔）命中即签 admin JWT。**白名单为空 = 拒绝所有**；首次绑定：留空登录一次，后端日志打出 openid，填入 `.env` 重启。**绝不能自动建号**（任何打开小程序的用户都能拿到合法 openid）。
 - code2session 响应体 Content-Type 不规范（text/plain 的 JSON），RestClient 按 Content-Type 选 converter 会失败 —— 故取 `String` 再手动反序列化。
 - `miniprogram/utils/request.js`：401 自动清 token 重登并重放一次；上传 multipart 字段名必须 `file`；下载 PDF 走 `downloadInvoiceFile()`（带 header）→ `wx.openDocument` 原生预览（web 端 pdf.js 双路径在端内不需要）。
-- 详情页数据经 eventChannel 从列表页传入（后端无 `GET /api/invoices/{id}`）。
+- 详情页数据优先经 eventChannel 从列表页传入（免一次往返）；eventChannel 不可用（分享卡片/重启直达）时按 `id` 走 `GET /api/invoices/{id}` 兜底。
 - `project.config.json` 的 `urlCheck: false` 即「不校验合法域名」，本地联调可指 `http://localhost:8080`；上线前把 `appid` 从 `touristappid` 换成真实 AppID。
+- GitHub secret scanning 会把 `project.config.json` 里的 `appid` 误报为 `tencent_wechat_api_app_id`（2026-10 已按 false_positive 关闭告警 #1）：AppID 是公开标识符（随每个分发的小程序包发布），且 AppSecret 只存 `.env` 不入库——再看到同类告警直接关误报即可。
 - 列表页逻辑测试：`node miniprogram/test/list-page.test.js` —— Node 打桩 `wx` 全局直接驱动 `pages/list/list.js`（无开发者工具依赖），覆盖「未使用」合计条数据流。`test/` 目录已由 `packOptions.ignore` 排除出上传包，勿删该配置。
 
 ## 开发环境坑
