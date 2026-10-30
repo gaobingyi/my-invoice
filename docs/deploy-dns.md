@@ -164,78 +164,13 @@ volumes:
 
 ### 4.3 `web/nginx.conf`
 
-```nginx
-# 包含 Cloudflare IP 白名单及本地网段放行
-include /etc/nginx/cf-allow.conf;
+> **单一事实源是仓库里的 `web/nginx.conf`**（含 SNI 兜底 default_server、Host 校验、AOP mTLS 三层），此处不再内嵌副本以免漂移。要点：业务 server block 含 `ssl_client_certificate /etc/nginx/certs/cf-origin-pull-ca.pem` + `ssl_verify_client on`（Authenticated Origin Pulls，见 §8.2）。
 
-server {
-    listen 8088 ssl;
-    http2 on;
-    server_name invoice.bingyi.dpdns.org;
+### 4.4 `web/cf-allow.conf`
 
-    ssl_certificate /etc/nginx/certs/origin.pem;
-    ssl_certificate_key /etc/nginx/certs/origin.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
+> **单一事实源是仓库里的 `web/cf-allow.conf`**（2026-10 起仅含 CF IPv4/IPv6 段 + deny all）。私网/回环放行已删除——AOP 把无 CF client 证书的连接（含 127.0.0.1、私网）拦在 400，IP 层私网条目已是死条目。
 
-    client_max_body_size 20m;
-
-    location /api/ {
-        proxy_pass http://backend:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location / {
-        root /usr/share/nginx/html;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-}
-```
-
-### 4.4 `web/cf-allow.conf`（Cloudflare IP 段 + 本地/Docker 私网放行）
-
-```nginx
-# 回环与 Docker 私网网段（供宿主机 curl 自检与健康检查，防止 403）
-allow 127.0.0.0/8;
-allow 172.16.0.0/12;
-allow 10.0.0.0/8;
-allow 192.168.0.0/16;
-
-# Cloudflare IPv4
-allow 173.245.48.0/20;
-allow 103.21.244.0/22;
-allow 103.22.200.0/22;
-allow 103.31.4.0/22;
-allow 141.101.64.0/18;
-allow 108.162.192.0/18;
-allow 190.93.240.0/20;
-allow 188.114.96.0/20;
-allow 197.234.240.0/22;
-allow 198.41.128.0/17;
-allow 162.158.0.0/15;
-allow 104.16.0.0/13;
-allow 104.24.0.0/14;
-allow 172.64.0.0/13;
-allow 131.0.72.0/22;
-
-# Cloudflare IPv6
-allow 2400:cb00::/32;
-allow 2606:4700::/32;
-allow 2803:f800::/32;
-allow 2405:b500::/32;
-allow 2405:8100::/32;
-allow 2a06:98c0::/29;
-allow 2c0f:f248::/32;
-
-deny all;
-```
-
-> **注意**：此处包含了 `127.0.0.0/8` 与 `172.16.0.0/12`，确保 VPS 宿主机能通过 `127.0.0.1:8088` 自检以及 Docker 内部通信不受阻。公网非 CF IP 依然会被 `deny all` 阻断。
+> **历史注意**：旧版此文件曾包含 `127.0.0.0/8` 与私网段供宿主机 `127.0.0.1:8088` 自检；AOP 启用后该自检路径已失效，自检一律走 `https://invoice.bingyi.dpdns.org`。
 
 ### 4.5 `web/Dockerfile`
 
@@ -278,11 +213,12 @@ LLM_MODEL=oc/deepseek-v4-flash-free
 cd /opt/invoice
 git pull
 
-# 2) 确认 certs/ 下有 origin.pem / origin.key（无则回第 3 节补齐，否则 nginx 起不来）
+# 2) 确认 certs/ 下有三份证书文件（缺 origin.* 回第 3 节、缺 CA 回 §8.2，否则 nginx 起不来）
 ls -l certs/
 # 预期看到:
 #   certs/origin.pem
-#   certs/origin.key   (权限 600)
+#   certs/origin.key            (权限 600)
+#   certs/cf-origin-pull-ca.pem (AOP 公共 origin-pull CA，见 §8.2)
 
 # 3) 启动
 docker compose up -d --build
@@ -302,8 +238,9 @@ docker compose ps   # 全部 healthy
 | DNS 解析 | `dig +short invoice.bingyi.dpdns.org` | 返回 CF IP（非 VPS 真实 IP） |
 | CF 代理生效 | `curl -I https://invoice.bingyi.dpdns.org` | 有 `cf-ray`、`server: cloudflare` |
 | Origin Rules 生效 | `curl -vk https://invoice.bingyi.dpdns.org/api/auth/ping` | 200，后端日志显示 `X-Forwarded-Proto: https` |
-| 源站证书验证 | `curl -vk https://127.0.0.1:8088/api/auth/ping` | 200，证书 Subject 包含 `invoice.bingyi.dpdns.org` |
-| 非 CF 公网 IP 被拦截 | `curl -vk https://<VPS_PUBLIC_IP>:8088/api/auth/ping` | 403（cf-allow.conf 生效） |
+| AOP 生效（经 CF） | `curl -sD - -o /dev/null https://invoice.bingyi.dpdns.org/api/auth/ping` | 200（CF 出示 client 证书，mTLS 校验通过） |
+| 无证书直连被拒 | `curl -vk --resolve invoice.bingyi.dpdns.org:8088:<VPS_PUBLIC_IP> https://invoice.bingyi.dpdns.org:8088/api/auth/ping` | 400（`ssl_verify_client on`，先于 cf-allow 的 IP 层） |
+| 无 SNI 握手被拒 | `curl -vk https://<VPS_PUBLIC_IP>:8088/` | TLS 握手失败 `unrecognized name`（default_server `ssl_reject_handshake`） |
 | 登录获取 token | `curl -X POST https://invoice.bingyi.dpdns.org/api/auth/login -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}'` | 返回 `{token, username}` |
 | 带 token 访问列表 | `curl -H "Authorization: Bearer <token>" https://invoice.bingyi.dpdns.org/api/invoices?page=0&size=10` | 200，返回分页数据 |
 | 上传 PDF | `curl -H "Authorization: Bearer <token>" -F "file=@test.pdf" https://invoice.bingyi.dpdns.org/api/invoices/upload` | 201，返回发票信息 |
@@ -315,7 +252,7 @@ docker compose ps   # 全部 healthy
 | 场景 | URL | 说明 |
 |---|---|---|
 | **公网访问** | `https://invoice.bingyi.dpdns.org` | 443 → CF → Origin Rules (8088, HTTPS) → nginx:8088 |
-| VPS 本地直连 | `curl -k https://127.0.0.1:8088/api/auth/ping` | 走源站证书，需 `-k`（CF Origin Cert 不被系统信任） |
+| VPS 本地自检 | `curl -s https://invoice.bingyi.dpdns.org/api/auth/ping` | **必须走 CF 域名**：直连 127.0.0.1:8088 已被 SNI 兜底（拒握手）与 AOP（400）双重拦死，属预期 |
 | 本地开发 | `https://localhost:8088` | 见《本地开发统一配置》文档（用 mkcert 自签 + cf-allow.local.conf） |
 
 ---
@@ -323,11 +260,45 @@ docker compose ps   # 全部 healthy
 ## 8. 安全检查清单
 
 - [ ] Cloudflare **SSL/TLS 模式 = Full (Strict)**（Dashboard → SSL/TLS → Overview）
-- [ ] `cf-allow.conf` 仅含 CF IP 与私网/回环段，阻断外网直连
-- [ ] VPS 防火墙（ufw/iptables/security group）**仅对 CF IP 开放 8088**，其它拒绝
+- [x] `cf-allow.conf` 仅含 CF IP 段（2026-10 起；私网/回环条目已随 AOP 启用删除）
+- [x] nginx Host/SNI 兜底：`default_server` + `ssl_reject_handshake` + 业务 server 内 `if ($host ...)` 已就位（2026-10 加入，非法 SNI/Host 一律断连）
+- [x] **Authenticated Origin Pulls 已启用**（Global 模式，`ssl_verify_client on`，见 §8.2）：无 CF client 证书的连接一律 400，含宿主机/本机直连——自检必须走 CF 域名
 - [ ] `JWT_SECRET` ≥ 32 字符，已写入 `.env`，未提交 git
 - [ ] `LLM_API_KEY`、`ADMIN_PASSWORD` 仅在 `.env`，未提交 git
 - [ ] 定期 `docker compose pull && docker compose up -d --build` 更新基础镜像
+
+### 8.1 已知事实：Docker 发布端口绕过 UFW，8088 防线在 nginx 层
+
+UFW 的默认拒绝挡不住 Docker 发布端口：Docker 的 DNAT/FORWARD 规则插在 ufw 链之前，**8088 从公网 TCP 可达，UFW 放行列表管不着**（2026-10-31 经外部节点直连实测证实：TCP+TLS 握手均完成）。当前 8088 的实际防线全在 nginx 层（2026-10 全部落地）：SNI 错误/缺失 → default_server 直接拒握手（拿不到证书）；SNI 正确但无 CF client 证书 → **400（AOP，mTLS 密码学层，先于 IP 判断）**；Host 头不对 → h1.1 断连（444）/ h2 421；有 CF 证书但 IP 不在白名单 → `cf-allow.conf` 403。端口对公网 TCP 可达，但已无任何未认证数据面。
+
+### 8.2 推荐加固：Authenticated Origin Pulls（mTLS）
+
+一次配置、无需维护 CF IP 段，把信任锚从 IP 段升级为密码学验证，顺带让 `CF-Connecting-IP` 的可信性有 mTLS 保障。**已启用（2026-10，Global 模式）**，实际步骤留档：
+
+1. **CF Dashboard**：SSL/TLS → Origin Server → Authenticated Origin Pulls → 打开 **Global** 开关（CF 用共享 client 证书回源）。Zone-level/Per-hostname 保持关闭——它们要求自备并上传 client 证书，「开着但无证书」是半配置空转态。
+2. 下载 CF 公共 origin-pull CA（`https://developers.cloudflare.com/ssl/static/authenticated_origin_pull_ca.pem`，CN=`origin-pull.cloudflare.net`，有效期至 2029），存为 `certs/cf-origin-pull-ca.pem`（`certs/` 已只读挂载进容器，无需改 compose）。
+3. `web/nginx.conf` 业务 server block 两行（已就位）：
+
+   ```nginx
+   ssl_client_certificate /etc/nginx/certs/cf-origin-pull-ca.pem;
+   ssl_verify_client on;
+   ```
+
+4. 渐进上线手法（本次实际采用）：先 `ssl_verify_client optional` + 调试头 `add_header X-SSL-Client-Verify $ssl_client_verify always;` 部署，经 CF 观察到 `x-ssl-client-verify: SUCCESS`（确认 CF 确实在出示证书）后再切 `on`、删调试头——避免「先 on 后开开关」把回源打断。
+5. 验证结果（2026-10-31 实测）：经 CF 200；无证书直连源站 403 → **400**；裸 IP/无 SNI 握手拒绝（`unrecognized name`）；容器间反代不受影响。
+
+> 顺序警告：必须**先开 CF Global 开关**再切 `ssl_verify_client on`，否则 CF 回源全挂。回滚 = 删除那两行 + reload（CA 文件留存无副作用）。日后若改回 cloudflared Tunnel，**必须先关 AOP**——tunnel 出口不出示 client 证书，`on` 会把隧道流量全拒。
+
+备选（不推荐）：DOCKER-USER 链只放行 CF IP 段到 8088：
+
+```bash
+iptables -I DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ipset create cf4 hash:net family inet   # cf-allow.conf 里的 CF IPv4 段逐条 add 进去
+# ... add cf4 <每段> ...
+iptables -I DOCKER-USER -p tcp --dport 8088 -m set ! --match-set cf4 src -j DROP
+```
+
+需 systemd unit 持久化（重启即丢），且 CF IP 段要与 `cf-allow.conf` 双份维护。仅当 AOP 方案遇阻（如 CF 免费版功能受限）时再用。
 
 ---
 
@@ -337,7 +308,8 @@ docker compose ps   # 全部 healthy
 |---|---|
 | 521 / 522 | Origin Rules 未生效（检查表达式、端口 8088、Scheme HTTPS）、nginx 未监听 8088、证书路径错 |
 | 525 / 526 | 源站证书过期/域名不匹配/私钥权限不对（`chmod 600 origin.key`） |
-| 403 (cf-allow) | 请求未走 CF（直连 VPS 公网 IP）、或 CF IP 段变更（定期同步 <https://www.cloudflare.com/ips/>） |
+| 400 (ssl_verify_client) | 连接无 CF client 证书：直连源站/宿主机 curl 属预期拦截；经 CF 域名却 400 → CF Dashboard 的 Global AOP 开关被关了 |
+| 403 (cf-allow) | 有证书但来源 IP 不在白名单：基本只见于 CF IP 段变更（定期同步 <https://www.cloudflare.com/ips/>） |
 | 登录 401 | `JWT_SECRET` 不一致、token 过期、密码错误 |
 | 上传 413 | `client_max_body_size` 未生效、或后端 `spring.servlet.multipart.max-file-size` 太小 |
 
@@ -346,6 +318,6 @@ docker compose ps   # 全部 healthy
 ## 10. 维护
 
 - **证书续期**：CF Origin Cert 15 年一换，到期前在 Dashboard 重新生成，替换 `/opt/invoice/certs/`，`docker compose restart nginx`
-- **CF IP 段更新**：`curl https://www.cloudflare.com/ips-v4 > /opt/invoice/web/cf-allow.conf && curl https://www.cloudflare.com/ips-v6 >> /opt/invoice/web/cf-allow.conf && echo "deny all;" >> /opt/invoice/web/cf-allow.conf && docker compose restart nginx`
+- **CF IP 段更新**：优先改仓库 `web/cf-allow.conf` 后 scp + `nginx -s reload`；应急可直接 `curl https://www.cloudflare.com/ips-v4 > /opt/invoice/web/cf-allow.conf && curl https://www.cloudflare.com/ips-v6 >> /opt/invoice/web/cf-allow.conf && echo "deny all;" >> /opt/invoice/web/cf-allow.conf && docker exec invoice-nginx nginx -s reload`（该命令会抹掉文件头注释，功能等价）
 - **日志**：`docker compose logs -f --tail=200 backend` / `nginx`
 - **备份（异地 MEGA）**：跑仓库自带脚本 `scripts/backup-mega.sh`（每日 3 点 cron，见 `DEPLOY.md §7`）：`docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/tmp/invoice-backup.db'"` 拿 SQLite 一致快照，连同上传文件卷打成单个 `invoice-backup-<时间>.tar.gz`，经 rclone 上传 MEGA 异地保存。

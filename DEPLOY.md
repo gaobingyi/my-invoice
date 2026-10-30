@@ -224,13 +224,14 @@ http://<VPS-IP>:8088
 cd /opt/invoice
 docker compose up -d
 docker compose ps                 # 三个服务应 healthy
-curl -s http://localhost:8088/api/auth/ping   # → pong（公开探活）
+curl -s https://invoice.bingyi.dpdns.org/api/auth/ping   # → pong（公开探活）
 # 业务端点已 401 保护：先登录拿 token 再访问
-TOKEN=$(curl -s -X POST http://localhost:8088/api/auth/login \
+# 注意：直连 localhost:8088 已被 SNI 兜底（拒握手）/AOP（400）拦截，属预期——自检一律走 CF 域名
+TOKEN=$(curl -s -X POST https://invoice.bingyi.dpdns.org/api/auth/login \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
-curl -s http://localhost:8088/api/invoices -H "Authorization: Bearer $TOKEN"   # → {"content":[],...}
+curl -s https://invoice.bingyi.dpdns.org/api/invoices -H "Authorization: Bearer $TOKEN"   # → {"content":[],...}
 ```
 
 浏览器访问：
