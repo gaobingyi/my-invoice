@@ -7,7 +7,7 @@
 - 后端 `server/`：Java 25 + Spring Boot 3.4.5 + Spring Data JPA + SQLite（Xerial JDBC）+ PDFBox 3.0.2 + POI 5.3.0（导出 Excel）。包 `com.example.invoice`。
 - 前端 `web/`：Vue 3 + Vite 6 + Element Plus + Axios（无 lint/typecheck 脚本）。
 - 小程序 `miniprogram/`：原生小程序，仅体验版。
-- 根 `pom.xml` 是聚合 POM（`<modules><module>server</module></modules>`），**无父依赖管理**，只为 IDEA 打开根目录时识别 `server` 为 Maven 模块。构建始终进 `server/` 执行。
+- 仓库根**无 pom.xml**（聚合 POM 已于 2026-10-31 移除）：`server` 是独立 Maven 工程（parent 为 spring-boot-starter-parent），构建始终进 `server/` 执行；IDEA 直接打开 `server/` 目录（或打开根目录后手动把 `server/pom.xml` attach 为 Maven 工程）。
 
 ```bash
 # 一键启停本地开发（后端 8080 + 前端 5173）
@@ -190,6 +190,6 @@ bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 
 ## 开发环境坑
 
-- IDEA 打开**根目录**（靠聚合 POM）。
+- IDEA 直接打开 `server/` 目录（仓库根无 Maven 工程，聚合 POM 已移除）。
 - 服务器端 curl 测中文上传失败时，先怀疑编码，不要怀疑 LLM。
 - 上传 413 场景：`server.tomcat.max-swallow-size: -1` 是为让「文件超过 10MB」的错误体能正常写出，否则经 nginx 反代时浏览器收到 502 而非提示。
