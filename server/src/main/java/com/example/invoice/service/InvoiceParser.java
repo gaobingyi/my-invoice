@@ -59,7 +59,10 @@ public class InvoiceParser {
     private static final Pattern YEN = Pattern.compile("[¥￥]\\s*([\\d,]+\\.\\d{2})|([\\d,]+\\.\\d{2})\\s*[¥￥]");
     // detail row: "*餐饮服务*餐饮服务 6%189.62 11.38189.621" — first decimal after % is 金额,
     // the second (space-separated) is 税额; the glued trailing 合计 digits are ignored.
-    private static final Pattern CATEGORY = Pattern.compile("\\*[^*]+\\*");
+    // pocfile: 内容限定短中文串（含换行——家具票的 *…* 会跨行折行）。免税/不征税票的税额列
+    // 印「***」，三连星与明细行 *…* 之间会跨行桥接，把大写金额/开票人整段吞进 category
+    // （26332000009297867451 即如此）；匹配前先抹掉连续星号串，双保险见 parseText。
+    private static final Pattern CATEGORY = Pattern.compile("\\*[\\u4e00-\\u9fa5\\n]{1,20}\\*");
     // 金额符号同时接受半角 ¥ 与全角 ￥。
 
     // pocfile: 铁路电子客票（电子发票（铁路电子客票））票面结构特殊：金额只有
@@ -311,10 +314,22 @@ public class InvoiceParser {
                 totalWithTax = max;
             }
         }
+        // pocfile: 免税/不征税票税额列印「***」（非数字），全文只有金额合计与价税合计两个
+        // 相等 ¥ 值，上面的三值不变量（size>=3）不成立 → 三个金额全 null。此时金额=价税合计、
+        // 税额票面无拆分记 0.00（与铁路票同一约定，Excel 合计可累加）。关键词门槛 + 两值相等
+        // 双条件：普通票即使 PDFBox 漏打一个 ¥ 也不会误入此分支（漏打后剩两值必不相等）。
+        if (totalWithTax == null && yens.size() == 2 && yens.get(0).compareTo(yens.get(1)) == 0
+                && (text.contains("免税") || text.contains("不征税"))) {
+            totalAmount = yens.get(0);
+            taxAmount = new BigDecimal("0.00");
+            totalWithTax = yens.get(0);
+        }
 
         // pocfile: category is the first *…* token in the detail block. Single-line in the
         // restaurant invoice (*餐饮服务*), wrapped across lines in the furniture one (*家具*).
-        String category = first(CATEGORY, text);
+        // 免税/不征税票税额列印「***」，先抹掉连续星号串再匹配，否则 *** 与明细行 *…* 跨行
+        // 桥接出垃圾 category；纯中文内容限定挡住其余孤立星号的同类桥接。
+        String category = first(CATEGORY, text.replaceAll("\\*{2,}", ""));
 
         // pocfile: 名称与信用代码按位置配对（见 CJK_RUN 注释）；配不上时退回旧 NAME 列表逻辑。
         List<TaxIdAt> taxes = realTaxIds(text);
