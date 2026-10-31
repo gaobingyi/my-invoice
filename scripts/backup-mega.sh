@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# 每日 3 点异地备份到 MEGA（在 VPS 宿主机执行，需对 compose 有 docker 权限）。
+# 每日 3 点异地备份到 MEGA（在 VPS 宿主机执行；去 Docker 化后直接读宿主数据目录）。
 #
 # 产出：单个 tar.gz（包内 db/invoice.db + uploads/uploads.tar.gz）→ 落到 /opt/backup/，
 #       再经 rclone 上传到 MEGA 的 invoice-backup 目录异地保存。
@@ -11,8 +11,10 @@
 # 前提（一次性）：
 #   1) 宿主机已装 rclone 并配好 MEGA remote（rclone config，选 mega，
 #      填账号密码，见 DEPLOY.md §7.1）。
-#   2) backend 镜像已装 sqlite3 CLI（server/Dockerfile 已 `apk add sqlite`）。
-#   3) 数据卷 —— DB 在 backend-db(/app/data/invoice.db)，上传文件在 backend-data(/app/uploads)。
+#   2) 宿主机已装 sqlite3 CLI（apt install sqlite3；去 Docker 化后 DB 在宿主
+#      文件系统，见 docs/de-docker-plan.md）。
+#   3) 数据目录 —— DB 在 /opt/invoice/data/db/invoice.db，
+#      上传文件在 /opt/invoice/data/uploads/。
 #
 # 用法：bash /opt/invoice/scripts/backup-mega.sh
 # cron 示例：12 3 * * * /opt/invoice/scripts/backup-mega.sh >> /var/log/invoice-backup.log 2>&1
@@ -24,7 +26,7 @@ BACKUP_DIR="${BACKUP_DIR:-/opt/backup}"      # 本地中转 + 保留目录
 MEGA_REMOTE="${MEGA_REMOTE:-invoice-mega}"   # rclone remote 名（MEGA）
 MEGA_FOLDER="${MEGA_FOLDER:-invoice-backup}" # MEGA 下的目标目录名
 RETENTION_DAYS="${RETENTION_DAYS:-30}"       # 本地/远端保留天数
-# 注意：.env（含 JWT_SECRET / WX_SECRET / LLM_API_KEY）与 docker-compose.yml /
+# 注意：.env（含 JWT_SECRET / WX_SECRET / LLM_API_KEY）与 nginx 站点配置 /
 # certs/ 不在本备份范围内——VPS 全损时需靠 DEPLOY.md 手工重建这些配置。
 
 STAMP="$(date +%F-%H%M)"                     # 如 2026-08-27-0312
@@ -44,21 +46,15 @@ trap 'rm -rf "$WORK"' EXIT                  # 无论成败都清工作目录
 
 echo "[backup] 开始 $STAMP"
 
-# 1) SQLite 在线一致快照。
-#    .backup 在 WAL 模式下仍能拿到一致快照；统一走 sqlite3 CLI（镜像已装），
-#    不做 cp+checkpoint 的备选路径，避免复制到一半 WAL/SHM 拿到损坏的第二份 DB。
-if ! docker exec invoice-backend sqlite3 /app/data/invoice.db ".backup '/tmp/invoice-backup.db'"; then
+# 1) SQLite 在线一致快照（服务运行中也安全：.backup 在 WAL 模式下拿到一致快照）。
+#    去 Docker 化后宿主直接出快照，不再绕道 docker exec + docker cp。
+if ! sqlite3 /opt/invoice/data/db/invoice.db ".backup '$WORK/db/invoice.db'"; then
     echo "[backup] 错误：SQLite .backup 失败" >&2
     exit 1
 fi
-docker cp invoice-backend:/tmp/invoice-backup.db "$WORK/db/invoice.db"
-docker exec invoice-backend rm -f /tmp/invoice-backup.db
 
-# 2) 备份上传文件卷（只读挂载，打包 uploads 目录内容）。
-docker run --rm \
-    -v invoice-manager_backend-data:/data:ro \
-    -v "$WORK/uploads":/out \
-    alpine tar czf /out/uploads.tar.gz -C /data .
+# 2) 打包上传文件目录（宿主直读，不再起 alpine 容器）。
+tar czf "$WORK/uploads/uploads.tar.gz" -C /opt/invoice/data/uploads .
 
 # 3) 打成一个最终的压缩包，包内结构：db/invoice.db + uploads/uploads.tar.gz。
 #    PDF 已不可压缩，外层再 gzip 收益极小，但保留 .gz 后缀与历史命名一致。

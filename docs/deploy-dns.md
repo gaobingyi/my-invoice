@@ -1,5 +1,11 @@
 # 部署文档：DNS 方案（`invoice.bingyi.dpdns.org` + Origin Rules + Origin Cert）
 
+> ⚠️ **2026-10-31 起 VPS 已去 Docker 化**（宿主 systemd + nginx，见 `docs/de-docker-plan.md`）。
+> 本文的 CF DNS / Origin Rules / Origin Cert / AOP（§8.2）**仍准确有效**；
+> 但 §4.2/4.5（compose/Dockerfile）、§5 部署步骤、§8.1（Docker 绕过 UFW）描述的是已退役的
+> Docker 栈——8088 现回 INPUT 链由 UFW 直接管（CF 段 22 条 allow），backend 只绑 127.0.0.1。
+> 当前日常运维见 `DEPLOY.md`。
+
 > 适用场景：VPS 有公网 IP，域名托管在 Cloudflare，想保留 8088 端口（不在 CF 代理端口列表），且使用 **Full (Strict) TLS**（CF 与源站双向验证证书）。
 
 ---

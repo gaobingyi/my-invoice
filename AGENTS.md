@@ -35,11 +35,13 @@ node web/e2e/run.mjs                    # 12 项断言，覆盖发票生命周�
 node web/e2e/mobile-dom-check.mjs       # 移动端只读 DOM 断言（10 项，不写数据）
 E2E_HEADLESS=1 node web/e2e/run.mjs     # 无 Xvfb 的机器
 
-# Docker 部署（两服务：backend + nginx，全镜像化）
-docker compose up -d --build            # 构建+启动，对外 8088 HTTPS
-docker compose logs -f backend
-docker compose ps                       # 看 healthy 状态
-docker compose down -v                  # 停止+清卷
+# 生产部署（2026-10-31 去 Docker 化：宿主 systemd + nginx，产物本地构建后 scp）
+cd server && mvn -B -DskipTests package
+scp server/target/invoice-server-1.0.0.jar root@103.232.94.248:/opt/invoice/server/target/
+cd web && npm run build
+tar czf - dist | ssh root@103.232.94.248 'tar xzf - -C /opt/invoice/web/'   # 前端覆盖即生效
+ssh root@103.232.94.248 'systemctl restart invoice-backend'                 # 换 jar 后重启
+ssh root@103.232.94.248 'journalctl -u invoice-backend -f'                  # 后端日志（nginx 站点在 /etc/nginx/sites-available/invoice）
 
 # 异地备份（VPS 上跑）：每日 3 点把 DB+uploads 打成单包传 MEGA
 bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.md
@@ -47,28 +49,25 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 
 ## 环境与 .env（双文件，勿混）
 
-- **根 `.env`**（gitignored，模板 `.env.example`）：docker compose 变量源。`JWT_SECRET`、`ADMIN_PASSWORD` 均为 `:?` **必填**，缺任一 compose 直接拒绝启动。还含 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`WX_*`。SQLite 是文件式，无 DB 凭据（旧 `DB_PASSWORD` / `MYSQL_ROOT_PASSWORD` 已移除）。
-- SQLite 连接（`./data/invoice.db`，WAL 模式）与 LLM 默认配置在 `server/src/main/resources/application.yml`；`LLM_API_KEY` 在 yml 也有 dev default（个人 dev key），本地不起后端可不 source。容器内由 compose 环境变量覆盖（DB `/app/data/invoice.db`、LLM 走 `LLM_BASE_URL`）。
+- **根 `.env`**（gitignored，模板 `.env.example`）：本地与生产共用的环境变量唯一事实源，含 `JWT_SECRET`、`ADMIN_PASSWORD`、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`WX_*`。SQLite 是文件式，无 DB 凭据。
+- 生产 systemd 的 `EnvironmentFile` 不吃注释行：`.env` 变更后要 `grep -E '^[A-Z_]+=' /opt/invoice/.env > /opt/invoice/.env.systemd`（chmod 600）再 restart。systemd 语法坑（都踩过）：`Environment=` 含空格的值必须整体加引号；`ExecStart` 用 `$VAR`（按空格拆参）而非 `${VAR}`（整个值变单个参数）。
+- SQLite 连接（`./data/invoice.db`，WAL 模式）与 LLM 默认配置在 `server/src/main/resources/application.yml`；`LLM_API_KEY` 在 yml 也有 dev default（个人 dev key），本地不起后端可不 source。生产由 systemd 单元覆盖（DB `/opt/invoice/data/db/invoice.db`、`UPLOAD_DIR`、`SERVER_ADDRESS=127.0.0.1` 等）。
 - Hikari `maximum-pool-size: 1`：SQLite 单写者，多连接下「事务内先读后写」并发交错会立即 BUSY（busy_timeout 对升级写锁的死锁不生效）。单连接让事务串行，顺带消除指标计数等 read-modify-write 的丢更新窗口。
 - JDBC URL 必须带 `date_class=TEXT`：Xerial 默认按 INTEGER（epoch ms）存 timestamp，与读侧 ISO-8601 解析错位会抛 ParseException。
 - LLM 兜底调用任意 OpenAI chat-completions 兼容服务，`llm.base-url` 可配（当前指向 `https://opencode.ai/zen/v1`，model `big-pickle`）。`LLM_ENABLED=false` 可关闭。
 - E2E 需要 `google-chrome-stable`（`/usr/bin/google-chrome-stable`）与 Xvfb 虚拟显示；样例 PDF 在 `invoice_examples/`（gitignored，E2E 用 `__dirname` 相对定位）。
 
-## Docker 部署（`docker-compose.yml`）
+## 生产部署（systemd + 宿主 nginx，2026-10-31 去 Docker 化）
 
-两服务全镜像化，`docker compose up --build` 从零拉起，不依赖宿主机构建产物。
+原 Docker 两镜像栈已退役，`docker-compose.yml` 与两个 Dockerfile 保留在仓库仅作**回滚保险**（观察期内 `cd /opt/invoice && docker compose up -d` 即回旧栈，见 `docs/de-docker-plan.md` §7；§6 拆 Docker 需 24h 观察后执行）。
 
-| 服务 | 镜像 | 说明 |
-|---|---|---|
-| `backend` | `invoice-backend:1.0.0`（`server/Dockerfile` 多阶段） | maven 构建 → temurin-25-jre 运行；健康检查 `wget /api/auth/ping`；三个命名卷：`backend-db`→`/app/data`、`backend-data`→`/app/uploads`、`backend-logs`→`/app/logs` |
-| `nginx` | `invoice-web:1.0.0`（`web/Dockerfile` 多阶段） | node 构建 dist → nginx 服务，对外 8088 **HTTPS**，反代 `/api` 到 backend |
-
-- `UPLOAD_DIR` **故意不进 `.env`**：它在容器里是卷挂载点（`/app/uploads`），改了 `.env` 但卷没挂到新路径会导致文件落 tmpfs、重启丢失且 DB 留孤儿行。改上传路径要连 `docker-compose.yml` 的 volume 一起改。
-- `TRUST_PROXY` 在 compose 里**硬编码 true**（不在 `.env` 暴露，避免误关）：仅当 backend 在可信反代后才可信 `X-Real-IP`。
-- nginx 对外 8088 + `certs/origin.pem`（Cloudflare Origin Cert）+ `web/cf-allow.conf`（2026-10 起**只含 CF IP 段**）。nginx 用 `CF-Connecting-IP` 回填 `X-Real-IP`（`map` 指令），让限流按访客真实 IP 而非 CF 边缘节点 IP 计数。改端口/证书注意 compose 卷挂载（`nginx.conf`/`cf-allow.conf`/`certs` 均为只读 bind mount，改 conf 重启容器即可，无需重建镜像）。
-- 源站双层闸门（详见 `docs/deploy-dns.md` §8）：① SNI/Host 兜底——`default_server` + `ssl_reject_handshake`，裸 IP/无 SNI 连接握手即拒；② **Authenticated Origin Pulls**（Global mTLS，`ssl_verify_client on`，CA 为 `certs/cf-origin-pull-ca.pem`）——无 CF client 证书的连接（VPS localhost、本机直连在内）一律 **400**，先于 IP 白名单。一切自检/联调走 `https://invoice.bingyi.dpdns.org`，直连探测只会得到 400/握手拒绝。日后若改回 cloudflared Tunnel，需先关 AOP 两行（Tunnel 不出示 client 证书）。
+- backend：`invoice-backend.service`（`/etc/systemd/system/`），jar 在 `/opt/invoice/server/target/invoice-server-1.0.0.jar`（**pom 升版本要同步改单元 ExecStart**）；`MemoryMax=512M`、`TimeoutStopSec=35` 优雅停机、`Restart=on-failure`；数据在 `/opt/invoice/data/{db,uploads,logs}`。
+- nginx：宿主 `/etc/nginx/sites-available/invoice` = `web/nginx.conf` + 四处适配（见 `de-docker-plan.md` §3.3）：root 指 `/opt/invoice/web/dist`、upstream `127.0.0.1:8080`、删 Docker DNS resolver、`http2 on;` → `listen 8088 ssl http2;`（**宿主 noble nginx 是 1.24，不认 1.25.1 引入的 `http2 on` 指令**——web/nginx.conf 是给容器内 1.27 用的，别直接拷去宿主）。改后 `nginx -t && systemctl reload nginx`。
+- 防火墙：8088 回到 INPUT 链，UFW 直接放行 CF IP 段（22 条 allow，清单 `/etc/docker-user-cloudflare-8088/cloudflare-v{4,6}.txt`）；8080 无放行且只绑回环。原 `docker-user-cloudflare-8088` 服务（DOCKER-USER 链）待拆 Docker 时一并退役。
+- 源站双层闸门不变（详见 `docs/deploy-dns.md` §8）：① SNI/Host 兜底——`default_server` + `ssl_reject_handshake`，裸 IP/无 SNI 连接握手即拒；② **Authenticated Origin Pulls**（Global mTLS，`ssl_verify_client on`，CA 为 `certs/cf-origin-pull-ca.pem`）——无 CF client 证书的连接一律 **400**。一切自检/联调走 `https://invoice.bingyi.dpdns.org`；本机 `--resolve` 探测 URL **必须带 `:8088`**（--resolve 按端口匹配，缺端口走 443 经 CF，测不到本机闸门）且预期 400。
+- nginx 用 `CF-Connecting-IP` 回填 `X-Real-IP`（`map` 指令）让限流按访客真实 IP 计数；`TRUST_PROXY=true` 在 systemd 单元硬编码（不进 `.env`，避免误关）；`UPLOAD_DIR` 固定在单元里（不进 `.env`，改路径连单元一起改）。
 - nginx 缓存策略：`index.html` 加 `Cache-Control: no-cache`（入口 HTML 缓存旧版会导致发版后浏览器跑旧 JS——新解析数据配旧渲染逻辑），`/assets/` 加 `immutable` 一年长缓存（Vite 产物带内容 hash）。
-- 三种公网方案见 `docs/deploy-dns.md`（DNS + Origin Rules + Origin Cert，当前采用）、`docs/deploy-tunnel.md`（cloudflared）、`DEPLOY.md`（综合指南）。
+- 公网方案：当前为 `docs/deploy-dns.md`（DNS + Origin Rules + Origin Cert，CF/DNS/AOP 部分仍有效，Docker 部分已退役）；`DEPLOY.md` 综合指南已改写为 systemd 版。
 
 ## schema 双写 + 老库迁移
 
