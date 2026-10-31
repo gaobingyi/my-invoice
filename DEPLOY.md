@@ -59,7 +59,7 @@ systemctl restart invoice-backend
 
 ## 5. 公网访问与 HTTPS
 
-见 `docs/deploy-dns.md`：CF DNS（橙云代理）+ Origin Rules 443→8088 + Origin Cert + **Authenticated Origin Pulls**（mTLS）。防火墙为 UFW：8088 仅放行 CF IP 段（22 条 allow 规则，清单源自 `/etc/docker-user-cloudflare-8088/cloudflare-v{4,6}.txt`），其余入站默认拒绝（22/8388 除外）。
+见 `docs/deploy-dns.md`：CF DNS（橙云代理）+ Origin Rules 443→8088 + Origin Cert + **Authenticated Origin Pulls**（mTLS）。防火墙为 UFW：8088 仅放行 CF IP 段（22 条 allow 规则，固化于 ufw 自身；CF 段官方清单 https://www.cloudflare.com/ips-v4 / ips-v6），其余入站默认拒绝（22/8388 除外）。
 
 自检注意：
 - 本机 `curl --resolve` 探 8088 **URL 必须带 `:8088`**（--resolve 按端口匹配），且**预期 400**（AOP 对无 client 证书的连接按设计回 400）；裸 IP 不发 SNI → 握手直接被拒。
@@ -138,7 +138,7 @@ nginx -t && systemctl reload nginx      # 改 nginx 配置后
 free -m                                 # 内存余量
 ```
 
-**更新部署流程** = §3：本地构建 → scp → `systemctl restart invoice-backend`（前端覆盖 dist 免重启）。**回滚到 Docker**：观察期内 `cd /opt/invoice && docker compose up -d` 即回旧栈（镜像与卷未删，详见 `de-docker-plan.md` §7）。
+**更新部署流程** = §3：本地构建 → scp → `systemctl restart invoice-backend`（前端覆盖 dist 免重启）。**回滚到 Docker**（已拆除，仅极端情况）：重装 Docker → `docker compose build` → 数据回灌，见 `de-docker-plan.md` §7。
 
 ---
 
@@ -167,4 +167,4 @@ free -m                                 # 内存余量
 
 调优已固化在 systemd 单元：`JAVA_OPTS=-Xmx256m -Xms32m -XX:+UseSerialGC` + `MemoryMax=512M`。Docker 常驻开销（dockerd/containerd/shim 约 107MiB）已随去 Docker 化移除。
 
-实测（2026-10-31 迁移后）：可用内存 425Mi → **606Mi**；java 进程 RSS 约 240MiB。仍紧张时：堆再压 `-Xmx192m`，或升 2C2G。
+实测（2026-10-31 去 Docker 化后）：java RSS 240~290MiB（随负载），dockerd/containerd 约 92MiB 常驻开销已移除；系统可用内存随页缓存在 330~600Mi 区间浮动。仍紧张时：堆再压 `-Xmx192m`，或升 2C2G。

@@ -1,6 +1,8 @@
 # 去 Docker 化迁移计划（invoice 单机部署）
 
-> 状态：**已执行**（2026-10-31 切换完成，§6 拆除 Docker 待 24h 观察后执行）。
+> 状态：**已全部执行**（2026-10-31 切换完成；§6 拆 Docker 同日执行——用户决定缩短观察期，
+> 删前核对了服务稳定/数据在位/MEGA 备份 07:00 新鲜包，镜像、三个卷、七个包、
+> docker-user-cloudflare-8088 服务全部移除，公网 200 复验通过）。
 > 撰写于 2026-10-31，基于当时的实际配置盘点（并在服务器上逐项核实）。
 > 评审修订：systemd 环境变量引号（§3.1）、宿主 nginx 1.24 的 http2 语法（§3.3）、
 > 切换时点数据再同步（§2/§5）、本机验证预期值（§5）、防火墙服务退役挪至 §6。
@@ -191,6 +193,7 @@ apt autoremove -y
 ## 7. 回滚（任一步失败）
 
 - 切换窗口内回滚 = 反向操作：`systemctl disable --now invoice-backend nginx` → `cd /opt/invoice && docker compose up -d` → `systemctl start docker-user-cloudflare-8088`。镜像和卷在 `docker compose down`（无 -v）后原封未动，回滚 < 2 分钟。**24h 观察期内的回滚同样适用**——防火墙辅助服务的文件已挪到 §6 才删，观察期内 `systemctl start` 仍有文件可起。
+- **§6 执行后回滚**（当前语义）：镜像/卷/Docker 包已删，不再有"compose up 即回"路径。需要回 Docker 时：重装 Docker（`curl -fsSL https://get.docker.com | sh`）→ `cd /opt/invoice && docker compose build`（Dockerfile 仍在仓库）→ 停 systemd 服务后把 `/opt/invoice/data/{db,uploads}` 拷回新卷，或直接从 MEGA 备份包恢复（DEPLOY.md §7.4）。
 - UFW 新规则不清（对 Docker 模式无影响，DOCKER-USER 链优先于 INPUT 语义不冲突）。
 - 本文档留在仓库，作为回滚时的配置来源。
 
@@ -210,4 +213,5 @@ apt autoremove -y
 - 更新后端 = 替换 jar → `systemctl restart invoice-backend`（不再有镜像层缓存问题）
 - 更新前端 = 覆盖 `web/dist` → nginx 零重启（静态文件即时生效）
 - 日志：stdout 不再有 json-file 限幅；logback 直写 `/opt/invoice/data/logs/`（轮转沿用 logback 自身策略）；nginx 日志走 `/var/log/nginx/`（logrotate 系统自带）
-- 两个 Dockerfile 保留在仓库（回滚保险），但 DEPLOY.md 需同步改写部署方式；`docker-user-cloudflare-8088` 一节整体作废
+- 两个 Dockerfile 与 docker-compose.yml 保留在仓库（回滚保险，语义见 §7）；DEPLOY.md 已改写为 systemd 版；deploy-dns.md 已加退役横幅；`docker-user-cloudflare-8088` 服务及其文件已随 §6 删除
+- UFW 的 22 条 CF 段 allow 规则固化在 ufw 自身（`/etc/ufw/user.rules`），与已删的清单目录无关；日后增删段用官方清单 https://www.cloudflare.com/ips-v4 / ips-v6 重配
