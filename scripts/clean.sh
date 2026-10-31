@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# 清空本地开发数据：数据库 + 上传文件（dev.sh 起的后端）
+# 清空本地开发数据：数据库 + 上传文件（dev.sh 起的后端；BACKEND=go 对应 server-go/data）
 set -euo pipefail
 
 # 脚本在 scripts/ 下，仓库根 = 脚本目录的上一级
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BACKEND="${BACKEND:-java}"
 
-echo "检测到模式: local"
+echo "检测到模式: local (backend=$BACKEND)"
 echo ""
 
-DB="$ROOT/server/data/invoice.db"
-UPLOADS="$ROOT/server/uploads"
+DB="$ROOT/$([ "$BACKEND" = go ] && echo server-go || echo server)/data/invoice.db"
+UPLOADS="$ROOT/$([ "$BACKEND" = go ] && echo server-go || echo server)/uploads"
 
 echo "将要删除："
 [ -f "$DB" ] && echo "  数据库: $DB" || echo "  数据库: (不存在)"

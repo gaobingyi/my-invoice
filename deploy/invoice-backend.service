@@ -1,0 +1,36 @@
+[Unit]
+Description=Invoice backend (Spring Boot)
+After=network-online.target
+Wants=network-online.target
+# 双后端互斥（Go 版见 invoice-go.service）：同一时刻只允许一个后端持有
+# 127.0.0.1:8080 与共享 SQLite（WAL 单写者），start 一个 systemd 自动停另一个
+Conflicts=invoice-go.service
+
+[Service]
+User=root
+WorkingDirectory=/opt/invoice
+# systemd EnvironmentFile 不支持行内注释/# 开头说明行，.env 里有大量注释，
+# 所以用 grep 过滤生成一份纯净版（键=值），随 .env 更新时重新生成：
+#   grep -E '^[A-Z_]+=' /opt/invoice/.env > /opt/invoice/.env.systemd
+EnvironmentFile=/opt/invoice/.env.systemd
+Environment=SPRING_DATASOURCE_URL=jdbc:sqlite:/opt/invoice/data/db/invoice.db?journal_mode=WAL&busy_timeout=5000&foreign_keys=on&date_class=TEXT
+Environment=UPLOAD_DIR=/opt/invoice/data/uploads
+Environment=LOGGING_FILE_NAME=/opt/invoice/data/logs/invoice-server.log
+Environment=TRUST_PROXY=true
+Environment=TZ=Asia/Shanghai
+# 仅监听回环：Docker 时代 backend 端口不对公网发布（只有 nginx 的 8088 对外），
+# 这里以绑定收口，不单靠 UFW；nginx 反代 127.0.0.1:8080 不受影响
+Environment=SERVER_ADDRESS=127.0.0.1
+# 含空格的值必须整体加引号：systemd 的 Environment= 是空格分隔的赋值列表，
+# 不加引号整行被拒（实测 transient unit 直接报 Invalid environment block 起不来）
+Environment="JAVA_OPTS=-Xmx256m -Xms32m -XX:+UseSerialGC"
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/invoice/server/target/invoice-server-1.0.0.jar
+Restart=on-failure
+RestartSec=5
+# 对应 compose 的 memory: 512m（堆 256m 之外给 PDFBox/POI 原生内存留余量）
+MemoryMax=512M
+# 对应 stop_grace_period: 35s —— 等 Spring 优雅停机完成再 SIGKILL
+TimeoutStopSec=35
+
+[Install]
+WantedBy=multi-user.target

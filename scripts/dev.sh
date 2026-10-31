@@ -1,19 +1,31 @@
 #!/usr/bin/env bash
 # 本地开发启停脚本：后端 8080 + 前端 5173
+# BACKEND=java（默认）跑 server/ 的 Spring Boot；BACKEND=go 跑 server-go/ 的 Go 版
+# （数据在 server-go/data，与 Java 的 server/data 互不相通；dev 默认口令两栈一致）。
 # set -m 让后台作业各自成为独立进程组——stop 时 kill -- -$pgid 可一并杀掉
 # mvn spring-boot:run fork 出的 java 子进程，避免它成孤儿继续占 8080。
 set -muo pipefail
 
 # 脚本在 scripts/ 下，仓库根 = 脚本目录的上一级
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BACKEND="${BACKEND:-java}"
 BACKEND_PID_FILE="$ROOT/.dev-backend.pid"
 FRONTEND_PID_FILE="$ROOT/.dev-frontend.pid"
 BACKEND_LOG="$ROOT/.dev-backend.log"
 FRONTEND_LOG="$ROOT/.dev-frontend.log"
 
-# mvn/java 不在 PATH 时兜底找 ~/.local/opt（Claude Code `!` 前缀等非交互 shell 不加载
-# ~/.bashrc，用户级安装的 JDK/Maven 会缺失——找不到就快速失败，别空转 60 秒超时）。
-if ! command -v mvn >/dev/null 2>&1; then
+# 工具链不在 PATH 时兜底找 ~/.local/opt（Claude Code `!` 前缀等非交互 shell 不加载
+# ~/.bashrc，用户级安装的 JDK/Maven/Go 会缺失——找不到就快速失败，别空转 60 秒超时）。
+if [ "$BACKEND" = go ]; then
+    if ! command -v go >/dev/null 2>&1; then
+        if [ -x "$HOME/.local/opt/go/bin/go" ]; then
+            export PATH="$HOME/.local/opt/go/bin:$PATH"
+        else
+            echo "错误：找不到 go（PATH 与 ~/.local/opt/go 均无）。先安装 Go 或修正 PATH。" >&2
+            exit 1
+        fi
+    fi
+elif ! command -v mvn >/dev/null 2>&1; then
     if [ -x "$HOME/.local/opt/maven/bin/mvn" ]; then
         export PATH="$HOME/.local/opt/jdk-25/bin:$HOME/.local/opt/maven/bin:$PATH"
     else
@@ -30,9 +42,9 @@ NC='\033[0m'
 status() {
     local running=true
     if [ -f "$BACKEND_PID_FILE" ] && kill -0 "$(cat "$BACKEND_PID_FILE")" 2>/dev/null; then
-        echo -e "  后端: ${GREEN}运行中${NC} (PID $(cat "$BACKEND_PID_FILE"), http://localhost:8080)"
+        echo -e "  后端($BACKEND): ${GREEN}运行中${NC} (PID $(cat "$BACKEND_PID_FILE"), http://localhost:8080)"
     else
-        echo -e "  后端: ${RED}未运行${NC}"
+        echo -e "  后端($BACKEND): ${RED}未运行${NC}"
         running=false
     fi
     if [ -f "$FRONTEND_PID_FILE" ] && kill -0 "$(cat "$FRONTEND_PID_FILE")" 2>/dev/null; then
@@ -49,9 +61,15 @@ start_backend() {
         echo -e "${YELLOW}后端已在运行 (PID $(cat "$BACKEND_PID_FILE"))${NC}"
         return
     fi
-    echo -n "启动后端... "
-    cd "$ROOT/server"
-    nohup mvn spring-boot:run -q > "$BACKEND_LOG" 2>&1 &
+    echo -n "启动后端($BACKEND)... "
+    if [ "$BACKEND" = go ]; then
+        mkdir -p "$ROOT/server-go/data"
+        cd "$ROOT/server-go"
+        nohup go run ./cmd/server > "$BACKEND_LOG" 2>&1 &
+    else
+        cd "$ROOT/server"
+        nohup mvn spring-boot:run -q > "$BACKEND_LOG" 2>&1 &
+    fi
     echo $! > "$BACKEND_PID_FILE"
     cd "$ROOT"
     # 等待后端就绪
@@ -156,7 +174,7 @@ case "${1:-}" in
     *)
         echo "用法: $0 {start|stop|restart|status|logs}"
         echo ""
-        echo "  start   - 启动后端 + 前端"
+        echo "  start   - 启动后端 + 前端（BACKEND=go 环境变量切 Go 后端，默认 java）"
         echo "  stop    - 停止后端 + 前端"
         echo "  restart - 重启"
         echo "  status  - 查看运行状态"

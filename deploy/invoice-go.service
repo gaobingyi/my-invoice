@@ -1,0 +1,32 @@
+[Unit]
+Description=Invoice backend (Go)
+After=network-online.target
+Wants=network-online.target
+# 双后端互斥（Java 版见 invoice-backend.service）：同一时刻只允许一个后端持有
+# 127.0.0.1:8080 与共享 SQLite（WAL 单写者），start 一个 systemd 自动停另一个。
+# 切换用 scripts/switch-backend.sh（start + enable/disable 对调，保证重启后仍起对的后端）
+Conflicts=invoice-backend.service
+
+[Service]
+User=root
+WorkingDirectory=/opt/invoice
+# 与 Java 单元共用同一份 .env 纯净版（两栈键名对齐：JWT_SECRET/ADMIN_*/LLM_*/WX_*；
+# Go 侧还要求 JWT_SECRET ≥32 字节，config 启动强校验）
+EnvironmentFile=/opt/invoice/.env.systemd
+Environment=INVOICE_DB=/opt/invoice/data/db/invoice.db
+Environment=UPLOAD_DIR=/opt/invoice/data/uploads
+Environment=TRUST_PROXY=true
+Environment=TZ=Asia/Shanghai
+Environment=SERVER_ADDRESS=127.0.0.1:8080
+# nginx 已服务静态前端；设 STATIC_DIR 只为直连 8080（仅回环可达）时也能打开页面
+Environment=STATIC_DIR=/opt/invoice/web/dist
+# 解析依赖外部 poppler（pdftotext -bbox）：apt install poppler-utils poppler-data
+ExecStart=/opt/invoice/server-go/bin/invoice-server
+Restart=on-failure
+RestartSec=5
+# Go 常驻 ~16MiB + poppler 子进程瞬时 ~24MiB，256M 已含十倍余量
+MemoryMax=256M
+TimeoutStopSec=35
+
+[Install]
+WantedBy=multi-user.target
