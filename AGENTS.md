@@ -43,7 +43,9 @@ tar czf - dist | ssh root@103.232.94.248 'tar xzf - -C /opt/invoice/web/'   # �
 ssh root@103.232.94.248 'systemctl restart invoice-backend'                 # 换 jar 后重启
 ssh root@103.232.94.248 'journalctl -u invoice-backend -f'                  # 后端日志（nginx 站点在 /etc/nginx/sites-available/invoice）
 
-# 异地备份（VPS 上跑）：每日 3 点把 DB+uploads 打成单包传 MEGA
+# 异地备份（VPS 上跑）：cron 03:12 把 DB+uploads 打成单包落 /opt/backup/，经 rclone 传 MEGA
+# （remote 名 invoice-mega，走 rclone 而非 mega-cmd——宿主机没装后者。MEGA OAuth 凭据失效会致上传
+# 失败但本地包保留，rclone reconnect invoice-mega: 重授权后重跑脚本即可补传）
 bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 ```
 
