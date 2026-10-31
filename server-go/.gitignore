@@ -1,0 +1,10 @@
+bin/
+data/
+uploads/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.systemd
+spike/*.pdf
+spike/truth.tsv
