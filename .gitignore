@@ -12,6 +12,8 @@ npm-debug.log*
 server/uploads/
 server/logs/
 server/data/
+# VPS 生产数据（systemd 单元引用 /opt/invoice/data/，在仓库工作树内但绝不入库）
+/data/
 
 # ---- dev.sh 运行产物（PID + 日志）----
 .dev-*.log
@@ -29,6 +31,8 @@ web/e2e/screenshots/
 # ---- 环境与密钥 ----
 .env
 .env.local
+# systemd EnvironmentFile 纯净版（grep 自 .env 生成，含 JWT_SECRET 等全部敏感键）
+.env.systemd
 .mcp.json
 
 # ---- TLS 证书与私钥（Cloudflare Origin Cert / 本地自签）----
