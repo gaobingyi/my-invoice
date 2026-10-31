@@ -44,7 +44,7 @@ ssh root@103.232.94.248 'systemctl restart invoice-backend'                 # �
 ssh root@103.232.94.248 'journalctl -u invoice-backend -f'                  # 后端日志（nginx 站点在 /etc/nginx/sites-available/invoice）
 
 # 异地备份（VPS 上跑）：每日 3 点把 DB+uploads 打成单包传 MEGA
-bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.md
+bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 ```
 
 ## 环境与 .env（双文件，勿混）
@@ -59,15 +59,15 @@ bash scripts/backup-mega.sh             # 见 DEPLOY.md §7 / docs/deploy-steps.
 
 ## 生产部署（systemd + 宿主 nginx，2026-10-31 去 Docker 化）
 
-原 Docker 两镜像栈已退役并拆除（2026-10-31 §6：镜像/卷/apt 包全部删除），`docker-compose.yml` 与两个 Dockerfile 保留在仓库仅作回滚保险——回滚需重装 Docker + `compose build` + 数据回灌（见 `docs/de-docker-plan.md` §7），不再有"compose up 即回"。
+原 Docker 两镜像栈已退役并拆除（2026-10-31 §6：镜像/卷/apt 包全部删除），`docker-compose.yml` 与两个 Dockerfile 保留在仓库仅作回滚保险——回滚需重装 Docker + `compose build` + 数据回灌（见 README「回滚到 Docker」），不再有"compose up 即回"。
 
 - backend：`invoice-backend.service`（`/etc/systemd/system/`），jar 在 `/opt/invoice/server/target/invoice-server-1.0.0.jar`（**pom 升版本要同步改单元 ExecStart**）；`MemoryMax=512M`、`TimeoutStopSec=35` 优雅停机、`Restart=on-failure`；数据在 `/opt/invoice/data/{db,uploads,logs}`。
-- nginx：宿主 `/etc/nginx/sites-available/invoice` = `web/nginx.conf` + 四处适配（见 `de-docker-plan.md` §3.3）：root 指 `/opt/invoice/web/dist`、upstream `127.0.0.1:8080`、删 Docker DNS resolver、`http2 on;` → `listen 8088 ssl http2;`（**宿主 noble nginx 是 1.24，不认 1.25.1 引入的 `http2 on` 指令**——web/nginx.conf 是给容器内 1.27 用的，别直接拷去宿主）。改后 `nginx -t && systemctl reload nginx`。
+- nginx：宿主 `/etc/nginx/sites-available/invoice` = `web/nginx.conf` + 四处适配：root 指 `/opt/invoice/web/dist`、upstream `127.0.0.1:8080`、删 Docker DNS resolver、`http2 on;` → `listen 8088 ssl http2;`（**宿主 noble nginx 是 1.24，不认 1.25.1 引入的 `http2 on` 指令**——web/nginx.conf 是给容器内 1.27 用的，别直接拷去宿主）。改后 `nginx -t && systemctl reload nginx`。
 - 防火墙：8088 回到 INPUT 链，UFW 直接放行 CF IP 段（22 条 allow，固化于 ufw 自身；官方清单来源 https://www.cloudflare.com/ips-v4 / ips-v6）；8080 无放行且只绑回环。原 `docker-user-cloudflare-8088` 服务已随 §6 拆除退役。
-- 源站双层闸门不变（详见 `docs/deploy-dns.md` §8）：① SNI/Host 兜底——`default_server` + `ssl_reject_handshake`，裸 IP/无 SNI 连接握手即拒；② **Authenticated Origin Pulls**（Global mTLS，`ssl_verify_client on`，CA 为 `certs/cf-origin-pull-ca.pem`）——无 CF client 证书的连接一律 **400**。一切自检/联调走 `https://invoice.bingyi.dpdns.org`；本机 `--resolve` 探测 URL **必须带 `:8088`**（--resolve 按端口匹配，缺端口走 443 经 CF，测不到本机闸门）且预期 400。
+- 源站双层闸门（五件套设置与 AOP 渐进上线手法见 README「生产部署 · 公网链路」）：① SNI/Host 兜底——`default_server` + `ssl_reject_handshake`，裸 IP/无 SNI 连接握手即拒；② **Authenticated Origin Pulls**（Global mTLS，`ssl_verify_client on`，CA 为 `certs/cf-origin-pull-ca.pem`）——无 CF client 证书的连接一律 **400**。一切自检/联调走 `https://invoice.bingyi.dpdns.org`；本机 `--resolve` 探测 URL **必须带 `:8088`**（--resolve 按端口匹配，缺端口走 443 经 CF，测不到本机闸门）且预期 400。日后若改回 cloudflared Tunnel，**必须先关 AOP 两行**（Tunnel 不出示 client 证书，`on` 会把隧道流量全拒）。
 - nginx 用 `CF-Connecting-IP` 回填 `X-Real-IP`（`map` 指令）让限流按访客真实 IP 计数；`TRUST_PROXY=true` 在 systemd 单元硬编码（不进 `.env`，避免误关）；`UPLOAD_DIR` 固定在单元里（不进 `.env`，改路径连单元一起改）。
 - nginx 缓存策略：`index.html` 加 `Cache-Control: no-cache`（入口 HTML 缓存旧版会导致发版后浏览器跑旧 JS——新解析数据配旧渲染逻辑），`/assets/` 加 `immutable` 一年长缓存（Vite 产物带内容 hash）。
-- 公网方案：当前为 `docs/deploy-dns.md`（DNS + Origin Rules + Origin Cert，CF/DNS/AOP 部分仍有效，Docker 部分已退役）；`DEPLOY.md` 综合指南已改写为 systemd 版。
+- 公网方案：CF DNS + Origin Rules + Origin Cert + AOP，操作手册见 README「生产部署」；历史部署文档（DEPLOY.md / docs/ 四份）已于 2026-10-31 并入 README，原文在 git 历史。
 
 ## schema 双写 + 老库迁移
 

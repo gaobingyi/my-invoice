@@ -10,9 +10,9 @@
 #
 # 前提（一次性）：
 #   1) 宿主机已装 rclone 并配好 MEGA remote（rclone config，选 mega，
-#      填账号密码，见 DEPLOY.md §7.1）。
+#      填账号密码，见 README「备份与恢复 · 一次性准备」）。
 #   2) 宿主机已装 sqlite3 CLI（apt install sqlite3；去 Docker 化后 DB 在宿主
-#      文件系统，见 docs/de-docker-plan.md）。
+#      文件系统）。
 #   3) 数据目录 —— DB 在 /opt/invoice/data/db/invoice.db，
 #      上传文件在 /opt/invoice/data/uploads/。
 #
@@ -27,7 +27,7 @@ MEGA_REMOTE="${MEGA_REMOTE:-invoice-mega}"   # rclone remote 名（MEGA）
 MEGA_FOLDER="${MEGA_FOLDER:-invoice-backup}" # MEGA 下的目标目录名
 RETENTION_DAYS="${RETENTION_DAYS:-30}"       # 本地/远端保留天数
 # 注意：.env（含 JWT_SECRET / WX_SECRET / LLM_API_KEY）与 nginx 站点配置 /
-# certs/ 不在本备份范围内——VPS 全损时需靠 DEPLOY.md 手工重建这些配置。
+# certs/ 不在本备份范围内——VPS 全损时需靠 README 手工重建这些配置。
 
 STAMP="$(date +%F-%H%M)"                     # 如 2026-08-27-0312
 WORK="$BACKUP_DIR/work/$STAMP"
