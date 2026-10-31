@@ -1,28 +1,35 @@
 # AGENTS.md
 
-发票管理系统（前后端分离）。上传 PDF 发票 → 解析字段 → 存 SQLite → 列表/预览/下载/删除，另有月度选票打包导出（导出批次）与解析指标看板，另有微信小程序体验版。
+发票管理系统（前后端分离）。上传 PDF 发票 → 解析字段 → 存 SQLite → 列表/预览/下载/删除，另有月度选票打包导出（导出批次）与解析指标看板，另有微信小程序体验版。**后端有两套行为 1:1 对齐的实现**：Java（`server/`，默认）与 Go（`server-go/`），生产共享同一 SQLite/uploads 按 systemd `Conflicts` 互斥切换——改业务/解析/schema 必须**两边同步落地**。
 
 ## 布局与命令
 
 - 后端 `server/`：Java 25 + Spring Boot 3.4.5 + Spring Data JPA + SQLite（Xerial JDBC）+ PDFBox 3.0.2 + POI 5.3.0（导出 Excel）。包 `com.example.invoice`。
+- 后端 `server-go/`：Go 1.27 重写（模块名 `invoice-go`）+ stdlib net/http + modernc.org/sqlite（`SetMaxOpenConns(1)`）+ poppler `pdftotext -bbox`（外部进程）。有意偏离表、共享 DB 存储格式对齐（`internal/store/stamps.go`）、instabox 并行实例部署见其 README。
 - 前端 `web/`：Vue 3 + Vite 6 + Element Plus + Axios（无 lint/typecheck 脚本）。
 - 小程序 `miniprogram/`：原生小程序，仅体验版。
-- 仓库根**无 pom.xml**（聚合 POM 已于 2026-10-31 移除）：`server` 是独立 Maven 工程（parent 为 spring-boot-starter-parent），构建始终进 `server/` 执行；IDEA 直接打开 `server/` 目录（或打开根目录后手动把 `server/pom.xml` attach 为 Maven 工程）。
+- `deploy/`：生产 systemd 单元两份（`invoice-backend.service` / `invoice-go.service`，互 `Conflicts=`）——单元文件的入库正本，改动后要同步到 VPS `/etc/systemd/system/`。
+- 仓库根**无 pom.xml**（聚合 POM 已于 2026-10-31 移除）：`server` 是独立 Maven 工程（parent 为 spring-boot-starter-parent），构建始终进 `server/` 执行；IDEA 直接打开 `server/` 目录（或打开根目录后手动把 `server/pom.xml` attach 为 Maven 工程）。`server-go/` 是嵌套 Go module，IDEA/GoLand 单开该目录即可。
 
 ```bash
-# 一键启停本地开发（后端 8080 + 前端 5173）
+# 一键启停本地开发（后端 8080 + 前端 5173；BACKEND=go 切 Go 后端，数据在 server-go/data）
 ./scripts/dev.sh start / stop / restart / status / logs
 
-# 清空本地开发数据（确认后执行，仅 local 模式）
+# 清空本地开发数据（确认后执行，仅 local 模式；BACKEND=go 对应 server-go）
 ./scripts/clean.sh
 
 # 后端测试（解析器/服务单测，无需 DB/LLM）
 cd server && mvn test
+cd server-go && go test ./...
 
 # 单测单类（另有 ExportServiceTest、ExportZipWriterTest、InvoiceExcelGeneratorTest、
 # InvoiceServiceTest、ParsingMetricsServiceTest、JwtTokenServiceTest、
 # SecurityConfigTest、WxLoginServiceTest）
 cd server && mvn test -Dtest=InvoiceParserTest
+
+# Go 解析回归（spike 基线 11 张真实发票 vs 生产 DB 真值，改解析器/提取层后必跑）
+cd server-go && go build -o bin/parsetool ./cmd/parsetool && ./bin/parsetool spike/*.pdf > /tmp/now.tsv
+# 与 spike/truth.tsv 逐字段 diff（路径列取 basename 后比其余 10 列）
 
 # 启动后端（首次启动自动建 ./data/invoice.db，上传目录 ./uploads）
 cd server && mvn spring-boot:run
@@ -43,6 +50,13 @@ tar czf - dist | ssh root@103.232.94.248 'tar xzf - -C /opt/invoice/web/'   # �
 ssh root@103.232.94.248 'systemctl restart invoice-backend'                 # 换 jar 后重启
 ssh root@103.232.94.248 'journalctl -u invoice-backend -f'                  # 后端日志（nginx 站点在 /etc/nginx/sites-available/invoice）
 
+# Go 后端发版（二进制就位不生效，单元 start/切到 Go 才用）
+cd server-go && CGO_ENABLED=0 go build -o bin/invoice-server ./cmd/server
+scp bin/invoice-server root@103.232.94.248:/opt/invoice/server-go/bin/
+
+# 生产双后端切换（共享数据，Conflicts 互斥；默认 Java 活跃）
+./scripts/switch-backend.sh java|go|status
+
 # 异地备份（VPS 上跑）：cron 03:12 把 DB+uploads 打成单包落 /opt/backup/，经 rclone 传 MEGA
 # （remote 名 invoice-mega，走 rclone 而非 mega-cmd——宿主机没装后者。MEGA OAuth 凭据失效会致上传
 # 失败但本地包保留，rclone reconnect invoice-mega: 重授权后重跑脚本即可补传）
@@ -55,7 +69,7 @@ bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 - 生产 systemd 的 `EnvironmentFile` 不吃注释行：`.env` 变更后要 `grep -E '^[A-Z_]+=' /opt/invoice/.env > /opt/invoice/.env.systemd`（chmod 600）再 restart。systemd 语法坑（都踩过）：`Environment=` 含空格的值必须整体加引号；`ExecStart` 用 `$VAR`（按空格拆参）而非 `${VAR}`（整个值变单个参数）。
 - SQLite 连接（`./data/invoice.db`，WAL 模式）与 LLM 默认配置在 `server/src/main/resources/application.yml`；`LLM_API_KEY` 在 yml 也有 dev default（个人 dev key），本地不起后端可不 source。生产由 systemd 单元覆盖（DB `/opt/invoice/data/db/invoice.db`、`UPLOAD_DIR`、`SERVER_ADDRESS=127.0.0.1` 等）。
 - Hikari `maximum-pool-size: 1`：SQLite 单写者，多连接下「事务内先读后写」并发交错会立即 BUSY（busy_timeout 对升级写锁的死锁不生效）。单连接让事务串行，顺带消除指标计数等 read-modify-write 的丢更新窗口。
-- JDBC URL 必须带 `date_class=TEXT`：Xerial 默认按 INTEGER（epoch ms）存 timestamp，与读侧 ISO-8601 解析错位会抛 ParseException。
+- JDBC URL 必须带 `date_class=TEXT`：Xerial 默认按 INTEGER（epoch ms）存 timestamp，与读侧 ISO-8601 解析错位会抛 ParseException。Go 侧对应 `server-go/internal/store/stamps.go`：写入模仿 Xerial 存储形态（LocalDateTime → `'yyyy-MM-dd HH:mm:ss.SSS'`、LocalDate → `'yyyy-MM-dd 00:00:00.000'`），读出归一化回 API 形态——这是共享 DB 互切的前提。
 - LLM 兜底调用任意 OpenAI chat-completions 兼容服务，`llm.base-url` 可配（当前指向 `https://opencode.ai/zen/v1`，model `big-pickle`）。`LLM_ENABLED=false` 可关闭。
 - E2E 需要 `google-chrome-stable`（`/usr/bin/google-chrome-stable`）与 Xvfb 虚拟显示；样例 PDF 在 `invoice_examples/`（gitignored，E2E 用 `__dirname` 相对定位）。
 
@@ -63,7 +77,8 @@ bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 
 原 Docker 两镜像栈已退役并**彻底移除**（2026-10-31 §6 拆除运行时，随后删除仓库内 `docker-compose.yml` 与两个 Dockerfile）——回滚 = 重装 Docker + 从 git 历史取回编排文件（删除提交 be65cca）+ `compose build` + 数据回灌，见 README「回滚到 Docker」。
 
-- backend：`invoice-backend.service`（`/etc/systemd/system/`），jar 在 `/opt/invoice/server/target/invoice-server-1.0.0.jar`（**pom 升版本要同步改单元 ExecStart**）；`MemoryMax=512M`、`TimeoutStopSec=35` 优雅停机、`Restart=on-failure`；数据在 `/opt/invoice/data/{db,uploads,logs}`。
+- backend：`invoice-backend.service`（`/etc/systemd/system/`，入库正本 `deploy/`），jar 在 `/opt/invoice/server/target/invoice-server-1.0.0.jar`（**pom 升版本要同步改单元 ExecStart**）；`MemoryMax=512M`、`TimeoutStopSec=35` 优雅停机、`Restart=on-failure`；数据在 `/opt/invoice/data/{db,uploads,logs}`。
+- **Go 后端**：`invoice-go.service`（入库正本 `deploy/`），二进制 `/opt/invoice/server-go/bin/invoice-server`；`MemoryMax=256M`，其余语义对齐 Java 单元。两单元互 `Conflicts=`：同一时刻只跑一个（共享 SQLite WAL 单写者 + 8080），start 一个自动停另一个；`scripts/switch-backend.sh java|go|status` 切换（start + enable/disable 对调，重启后仍起对的后端）。**默认 Java 活跃**。切换语义 = 共享数据零迁移：Go 写入的时间戳格式已逐字节对齐 Xerial（`server-go/internal/store/stamps.go`），改动时间戳相关代码必须重跑 Java↔Go 双向读写实验（见 server-go/README.md）。两单元共用 `/opt/invoice/.env.systemd`（键名对齐）；Go 要求 `JWT_SECRET` ≥32 字节；Go 日志走 journald（`journalctl -u invoice-go -f`）。
 - nginx：宿主 `/etc/nginx/sites-available/invoice` = `web/nginx.conf` + 四处适配：root 指 `/opt/invoice/web/dist`、upstream `127.0.0.1:8080`、删 Docker DNS resolver、`http2 on;` → `listen 8088 ssl http2;`（**宿主 noble nginx 是 1.24，不认 1.25.1 引入的 `http2 on` 指令**——web/nginx.conf 是给容器内 1.27 用的，别直接拷去宿主）。改后 `nginx -t && systemctl reload nginx`。
 - 防火墙：8088 回到 INPUT 链，UFW 直接放行 CF IP 段（22 条 allow，固化于 ufw 自身；官方清单来源 https://www.cloudflare.com/ips-v4 / ips-v6）；8080 无放行且只绑回环。原 `docker-user-cloudflare-8088` 服务已随 §6 拆除退役。
 - 源站双层闸门（五件套设置与 AOP 渐进上线手法见 README「生产部署 · 公网链路」）：① SNI/Host 兜底——`default_server` + `ssl_reject_handshake`，裸 IP/无 SNI 连接握手即拒；② **Authenticated Origin Pulls**（Global mTLS，`ssl_verify_client on`，CA 为 `certs/cf-origin-pull-ca.pem`）——无 CF client 证书的连接一律 **400**。一切自检/联调走 `https://invoice.bingyi.dpdns.org`；本机 `--resolve` 探测 URL **必须带 `:8088`**（--resolve 按端口匹配，缺端口走 443 经 CF，测不到本机闸门）且预期 400。日后若改回 cloudflared Tunnel，**必须先关 AOP 两行**（Tunnel 不出示 client 证书，`on` 会把隧道流量全拒）。
@@ -71,16 +86,19 @@ bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 - nginx 缓存策略：`index.html` 加 `Cache-Control: no-cache`（入口 HTML 缓存旧版会导致发版后浏览器跑旧 JS——新解析数据配旧渲染逻辑），`/assets/` 加 `immutable` 一年长缓存（Vite 产物带内容 hash）。
 - 公网方案：CF DNS + Origin Rules + Origin Cert + AOP，操作手册见 README「生产部署」；历史部署文档（DEPLOY.md / docs/ 四份）已于 2026-10-31 并入 README，原文在 git 历史。
 
-## schema 双写 + 老库迁移
+## schema 三写 + 老库迁移
 
-- SQLite DDL 写在两处（内容必须保持一致）：
+- SQLite DDL 写在三处（内容必须保持一致）：
   - `server/ddl/schema.sql`：人看 / code review 的源文件
   - `server/src/main/resources/schema.sql`：Spring `spring.sql.init.mode: always` 启动时实际加载的副本
+  - `server-go/internal/store/schema.sql`：Go 版 `go:embed` 启动时实际加载的副本
 
-  两份顶部都有 "keep in sync" 标记。JPA `ddl-auto: none`（SQLite 类型亲和非严格，`validate` 频繁误报；schema.sql 是单一事实源，列名错配由运行时 `no such column` 捕获）。**改实体必须同步改两份 schema.sql。**
-- 新增列时还要改 `config/SchemaMigration.java`：`CREATE TABLE IF NOT EXISTS` 不会给**已存在的老表**加列，SQLite 也没有 `ADD COLUMN IF NOT EXISTS`。它在启动时按 `PRAGMA table_info` 补齐（`invoice.used`/`used_at`、`parsing_metrics`/`parsing_log` 表都走这条路径）。不用 `continue-on-error`，那会静默吞掉整个 schema.sql 的错误。
+  各份顶部都有 "keep in sync" 标记。JPA `ddl-auto: none`（SQLite 类型亲和非严格，`validate` 频繁误报；schema.sql 是单一事实源，列名错配由运行时 `no such column` 捕获）。**改实体必须同步改三份 schema.sql。**
+- 新增列时还要改 `config/SchemaMigration.java` 与 Go 版 `server-go/internal/store/store.go` 的 `migrate()`（同样的 `PRAGMA table_info` 补列逻辑，两边都要）：`CREATE TABLE IF NOT EXISTS` 不会给**已存在的老表**加列，SQLite 也没有 `ADD COLUMN IF NOT EXISTS`。它在启动时按 `PRAGMA table_info` 补齐（`invoice.used`/`used_at`、`parsing_metrics`/`parsing_log` 表都走这条路径）。不用 `continue-on-error`，那会静默吞掉整个 schema.sql 的错误。
 
 ## 解析架构（核心）
+
+**Java 与 Go 各有一套完整解析器，行为 1:1 对齐、长期并存**——解析修复/版式适配必须两边同步落地，落完各自跑回归（Java：`InvoiceParserTest`；Go：`go test ./internal/parser` + `cmd/parsetool` 对 `spike/truth.tsv` 11/11）。提取引擎不同（PDFBox vs poppler `pdftotext -bbox`），文本层差异已在 Go 提取层归一化对齐，规则层的坑位清单两边通用：
 
 `InvoiceParser.parse()` 三条路径：
 

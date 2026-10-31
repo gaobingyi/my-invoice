@@ -17,11 +17,11 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Java 25 · Spring Boot 3.4.5 · Spring Data JPA · SQLite（Xerial JDBC）· PDFBox 3.0.2 · POI 5.3.0（导出 Excel） |
+| 后端 | **Java 版**（`server/`）：Java 25 · Spring Boot 3.4.5 · Spring Data JPA · SQLite（Xerial JDBC）· PDFBox 3.0.2 · POI 5.3.0（导出 Excel）；**Go 版**（`server-go/`，行为 1:1 对齐、可切换）：Go 1.27 · stdlib net/http · modernc.org/sqlite · poppler pdftotext |
 | 前端 | Vue 3 · Vite 6 · Element Plus · Axios · vue-pdf-embed（移动端预览） |
 | 小程序 | 原生微信小程序（体验版，openid 白名单绑定 admin） |
-| 解析 | 正则快速路径（PDFBox 抽文本）+ LLM 兜底（OpenAI 兼容，可选） |
-| 部署 | 单机 VPS（1C1G）宿主 **systemd + nginx**（2026-10-31 起，Docker 栈已彻底移除） |
+| 解析 | 正则快速路径（PDFBox/poppler 抽文本）+ LLM 兜底（OpenAI 兼容，可选） |
+| 部署 | 单机 VPS（1C1G）宿主 **systemd + nginx**（2026-10-31 起，Docker 栈已彻底移除）；Java/Go 双后端 systemd `Conflicts` 互斥，一条命令切换（默认 Java） |
 
 ## 快速开始
 
@@ -32,7 +32,7 @@
 - LLM 兜底可选：`LLM_ENABLED=false` 关闭；本地不起后端时无需配 key（`application.yml` 有 dev default）。改 key/地址用根 `.env` 或 shell export（无 `server/.env` 文件）
 
 ```bash
-# 一键启停（后端 8080 + 前端 5173）
+# 一键启停（后端 8080 + 前端 5173；BACKEND=go 环境变量切 Go 后端）
 ./scripts/dev.sh start / stop / restart / status / logs
 
 # 或手动分别启动
@@ -42,6 +42,7 @@ cd web && npm run dev                 # 5173，vite proxy /api → 8080
 # 后端测试（无需 DB/LLM）
 cd server && mvn test
 cd server && mvn test -Dtest=InvoiceParserTest
+cd server-go && go test ./...
 
 # 浏览器端到端测试（需后端+前端+Xvfb+google-chrome-stable）
 node web/e2e/run.mjs                  # 无 Xvfb 的机器用 E2E_HEADLESS=1
@@ -57,20 +58,21 @@ node web/e2e/run.mjs                  # 无 Xvfb 的机器用 E2E_HEADLESS=1
 ### 架构
 
 ```
-[浏览器] --HTTPS 443--> [Cloudflare 边缘] --Origin Pull 443→8088(mTLS)--> [宿主 nginx :8088] --/api--> [java :8080 仅 127.0.0.1]
+[浏览器] --HTTPS 443--> [Cloudflare 边缘] --Origin Pull 443→8088(mTLS)--> [宿主 nginx :8088] --/api--> [java|go :8080 仅 127.0.0.1]
                                                                               │
                                                                               ├─ 静态前端 /opt/invoice/web/dist
-                                                                              ├─ SQLite /opt/invoice/data/db/invoice.db (WAL)
-                                                                              ├─ 上传文件 /opt/invoice/data/uploads/
-                                                                              └─ 日志 /opt/invoice/data/logs/（logback 30d/1GB 轮转）
+                                                                              ├─ SQLite /opt/invoice/data/db/invoice.db (WAL，双后端共享)
+                                                                              ├─ 上传文件 /opt/invoice/data/uploads/（双后端共享）
+                                                                              └─ 日志（Java: /opt/invoice/data/logs/ logback 轮转；Go: journald）
 ```
 
-进程 `invoice-backend.service`（`MemoryMax=512M`、`TimeoutStopSec=35` 优雅停机、`Restart=on-failure`）；nginx 站点 `/etc/nginx/sites-available/invoice`；8080 只绑回环，不对公网。
+进程 `invoice-backend.service`（Java，`MemoryMax=512M`、`TimeoutStopSec=35` 优雅停机、`Restart=on-failure`）与 `invoice-go.service`（Go，`MemoryMax=256M`）互相 `Conflicts=` 互斥——**同一时刻只跑一个**，start 一个 systemd 自动停另一个；两者共用同一 SQLite 与 uploads，切换零数据迁移（Go 写入格式已逐字节对齐 Xerial，见 `server-go/README.md`）。nginx 站点 `/etc/nginx/sites-available/invoice`；8080 只绑回环，不对公网。单元文件入库于 `deploy/`。
 
 ### 1. 服务器准备
 
 ```bash
-apt install -y openjdk-25-jre-headless nginx sqlite3   # Ubuntu 24.04 源都有
+apt install -y openjdk-25-jre-headless nginx sqlite3 \
+  poppler-utils poppler-data   # 后两包 Go 后端的 pdftotext 依赖（data 提供 Adobe-GB1 CJK 映射）
 ```
 
 - 源里 JRE 25.0.4，本地构建用 Temurin 25.0.5——同 25 LTS 无兼容问题。
@@ -88,6 +90,14 @@ ssh root@103.232.94.248 'systemctl restart invoice-backend'
 # 前端（覆盖即生效，nginx 免重启）
 cd ../web && npm run build
 tar czf - dist | ssh root@103.232.94.248 'tar xzf - -C /opt/invoice/web/'
+```
+
+Go 后端发版（当前活跃的是 Java 时照常可发，二进制就位不生效，切过去才用）：
+
+```bash
+cd server-go && CGO_ENABLED=0 go build -o bin/invoice-server ./cmd/server
+scp bin/invoice-server root@103.232.94.248:/opt/invoice/server-go/bin/
+ssh root@103.232.94.248 'systemctl restart invoice-go'   # 仅当 Go 正活跃；没活跃则下次 start 生效
 ```
 
 ### 3. 环境变量（.env 与 .env.systemd）
@@ -146,6 +156,28 @@ curl -s https://invoice.bingyi.dpdns.org/api/auth/ping          # → 200（公�
 | 上传 413 | nginx `client_max_body_size` 未生效、或后端 `spring.servlet.multipart.max-file-size` 太小 |
 | nginx 起不来 unknown directive `http2` | 宿主 nginx 1.24 不认 `http2 on;`，改 `listen 8088 ssl http2;`（见 §3） |
 
+### 7. 双后端切换（Java/Go 共享数据）
+
+两套后端互为对方的热备/替代：同一 SQLite + uploads，systemd `Conflicts=` 互斥，nginx 不用动（upstream 恒为 `127.0.0.1:8080`）。Go 版细节（有意偏离表、存储格式对齐、instabox 并行实例）见 [server-go/README.md](server-go/README.md)。
+
+```bash
+# 本地仓库根执行
+./scripts/switch-backend.sh status   # 两个单元 active/enabled + 8080 ping
+./scripts/switch-backend.sh go       # 切到 Go（自动停 Java + enable/disable 对调）
+./scripts/switch-backend.sh java     # 切回 Java（默认活跃）
+
+# 首次安装 Go 后端（只做一次）：二进制 + 单元 + daemon-reload
+cd server-go && CGO_ENABLED=0 go build -o bin/invoice-server ./cmd/server
+scp bin/invoice-server root@103.232.94.248:/opt/invoice/server-go/bin/
+scp deploy/invoice-go.service deploy/invoice-backend.service root@103.232.94.248:/etc/systemd/system/
+ssh root@103.232.94.248 'apt install -y poppler-utils poppler-data && systemctl daemon-reload'
+```
+
+- 切换 = start 目标单元（Conflicts 自动停对方）+ enable/disable 对调，VPS 重启后仍自动起当前选中的后端。
+- 两个单元共用 `/opt/invoice/.env.systemd`（键名两栈对齐）；Go 侧要求 `JWT_SECRET` ≥32 字节（config 启动强校验）。
+- 登录态跨栈通用（同 `JWT_SECRET`，HS256）；本地 dev 因默认密钥不同，切后端后需重登。
+- 切换期间短暂 502 属正常（前一个进程停、后一个 ~1s(Go)/~8s(Java) 起完）。
+
 ---
 
 ## 备份与恢复（MEGA 异地容灾）
@@ -196,9 +228,10 @@ curl -s http://127.0.0.1:8080/api/auth/ping
 ## 运维速查
 
 ```bash
+./scripts/switch-backend.sh status      # 双后端 active/enabled + ping（切换见 §7）
 systemctl status invoice-backend        # 状态（崩了 systemd 自动拉起）
-journalctl -u invoice-backend -f        # 启动/异常日志
-tail -f /opt/invoice/data/logs/invoice-server.log   # 应用日志（含 LLM fill）
+journalctl -u invoice-backend -f        # 启动/异常日志（Go 版：journalctl -u invoice-go -f）
+tail -f /opt/invoice/data/logs/invoice-server.log   # 应用日志（含 LLM fill，仅 Java）
 systemctl restart invoice-backend       # 换 jar 后重启
 nginx -t && systemctl reload nginx      # 改 nginx 配置后
 free -m                                 # 内存余量
@@ -242,13 +275,17 @@ free -m                                 # 内存余量
 ## 项目结构
 
 ```
-server/         后端（Spring Boot）
+server/         后端（Spring Boot，默认）
   src/          解析器 / 服务 / 控制器 / 实体
   ddl/schema.sql       SQLite 表结构（与 src/main/resources/schema.sql 内容一致）
+server-go/      后端（Go 重写，与 Java 版行为 1:1 对齐、生产可切换；详见其 README）
+  internal/     store(schema+迁移+时间戳格式对齐) / parser(正则+Layout+LLM) / api / export / auth ...
+  spike/        解析回归基线（gitignored：11 张真实发票 PDF + 生产 DB 真值）
 web/            前端（Vue 3 + Vite）
   e2e/          浏览器端到端测试
 miniprogram/    微信小程序（体验版）
-scripts/        dev.sh 本地启停 / clean.sh 清库 / backup-mega.sh 异地备份
+deploy/         生产 systemd 单元（invoice-backend.service / invoice-go.service）
+scripts/        dev.sh 本地启停 / clean.sh 清库 / switch-backend.sh 双后端切换 / backup-mega.sh 异地备份
 AGENTS.md       工作区说明（架构细节 / 坑位清单 / 约定）
 ```
 
