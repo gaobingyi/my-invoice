@@ -80,12 +80,13 @@ apt install -y openjdk-25-jre-headless nginx sqlite3   # Ubuntu 24.04 源都有
 
 ```bash
 # 后端（jar 路径写死在 systemd 单元 ExecStart 里，pom 升版本需同步改单元）
+# 整块从仓库根目录粘贴执行；cd 之后的相对路径已对齐当前目录
 cd server && mvn -B -DskipTests package
-scp server/target/invoice-server-1.0.0.jar root@103.232.94.248:/opt/invoice/server/target/
+scp target/invoice-server-1.0.0.jar root@103.232.94.248:/opt/invoice/server/target/
 ssh root@103.232.94.248 'systemctl restart invoice-backend'
 
 # 前端（覆盖即生效，nginx 免重启）
-cd web && npm run build
+cd ../web && npm run build
 tar czf - dist | ssh root@103.232.94.248 'tar xzf - -C /opt/invoice/web/'
 ```
 

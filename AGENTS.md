@@ -35,10 +35,10 @@ node web/e2e/run.mjs                    # 12 项断言，覆盖发票生命周�
 node web/e2e/mobile-dom-check.mjs       # 移动端只读 DOM 断言（10 项，不写数据）
 E2E_HEADLESS=1 node web/e2e/run.mjs     # 无 Xvfb 的机器
 
-# 生产部署（2026-10-31 去 Docker 化：宿主 systemd + nginx，产物本地构建后 scp）
+# 生产部署（2026-10-31 去 Docker 化：宿主 systemd + nginx，产物本地构建后 scp；整块从仓库根粘贴，cd 后路径已对齐）
 cd server && mvn -B -DskipTests package
-scp server/target/invoice-server-1.0.0.jar root@103.232.94.248:/opt/invoice/server/target/
-cd web && npm run build
+scp target/invoice-server-1.0.0.jar root@103.232.94.248:/opt/invoice/server/target/
+cd ../web && npm run build
 tar czf - dist | ssh root@103.232.94.248 'tar xzf - -C /opt/invoice/web/'   # 前端覆盖即生效
 ssh root@103.232.94.248 'systemctl restart invoice-backend'                 # 换 jar 后重启
 ssh root@103.232.94.248 'journalctl -u invoice-backend -f'                  # 后端日志（nginx 站点在 /etc/nginx/sites-available/invoice）
