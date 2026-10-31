@@ -13,7 +13,7 @@
 # 一键启停本地开发（后端 8080 + 前端 5173）
 ./scripts/dev.sh start / stop / restart / status / logs
 
-# 清空数据（自动检测本地/Docker 模式，确认后执行）
+# 清空本地开发数据（确认后执行，仅 local 模式）
 ./scripts/clean.sh
 
 # 后端测试（解析器/服务单测，无需 DB/LLM）
@@ -59,7 +59,7 @@ bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 
 ## 生产部署（systemd + 宿主 nginx，2026-10-31 去 Docker 化）
 
-原 Docker 两镜像栈已退役并拆除（2026-10-31 §6：镜像/卷/apt 包全部删除），`docker-compose.yml` 与两个 Dockerfile 保留在仓库仅作回滚保险——回滚需重装 Docker + `compose build` + 数据回灌（见 README「回滚到 Docker」），不再有"compose up 即回"。
+原 Docker 两镜像栈已退役并**彻底移除**（2026-10-31 §6 拆除运行时，随后删除仓库内 `docker-compose.yml` 与两个 Dockerfile）——回滚 = 重装 Docker + 从 git 历史取回编排文件（删除提交 be65cca）+ `compose build` + 数据回灌，见 README「回滚到 Docker」。
 
 - backend：`invoice-backend.service`（`/etc/systemd/system/`），jar 在 `/opt/invoice/server/target/invoice-server-1.0.0.jar`（**pom 升版本要同步改单元 ExecStart**）；`MemoryMax=512M`、`TimeoutStopSec=35` 优雅停机、`Restart=on-failure`；数据在 `/opt/invoice/data/{db,uploads,logs}`。
 - nginx：宿主 `/etc/nginx/sites-available/invoice` = `web/nginx.conf` + 四处适配：root 指 `/opt/invoice/web/dist`、upstream `127.0.0.1:8080`、删 Docker DNS resolver、`http2 on;` → `listen 8088 ssl http2;`（**宿主 noble nginx 是 1.24，不认 1.25.1 引入的 `http2 on` 指令**——web/nginx.conf 是给容器内 1.27 用的，别直接拷去宿主）。改后 `nginx -t && systemctl reload nginx`。

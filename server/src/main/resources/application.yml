@@ -44,8 +44,8 @@ jwt:
 login:
   rate-limit-enabled: true  # 登录端点：单 IP 失败次数超阈值 → 401（内存计数，重启清零）
 
-# 顶层键（不是 login.trust-proxy）：AuthController 读 ${trust-proxy}，compose 的
-# TRUST_PROXY 环境变量也经宽松绑定映射到顶层同名键——放在 login: 下会两边都读不到。
+# 顶层键（不是 login.trust-proxy）：AuthController 读 ${trust-proxy}，环境变量
+# TRUST_PROXY 也经宽松绑定映射到顶层同名键（生产 systemd 单元置 true）——放在 login: 下会两边都读不到。
 # 后端在可信反代（nginx）后置 true，限流按 X-Real-IP（CF-Connecting-IP）算真客户端 IP。
 # 直连 / vite proxy 时保持 false：客户端可伪造 X-Real-IP 绕过限流。
 trust-proxy: ${TRUST_PROXY:false}

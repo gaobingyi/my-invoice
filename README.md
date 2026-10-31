@@ -21,7 +21,7 @@
 | 前端 | Vue 3 · Vite 6 · Element Plus · Axios · vue-pdf-embed（移动端预览） |
 | 小程序 | 原生微信小程序（体验版，openid 白名单绑定 admin） |
 | 解析 | 正则快速路径（PDFBox 抽文本）+ LLM 兜底（OpenAI 兼容，可选） |
-| 部署 | 单机 VPS（1C1G）宿主 **systemd + nginx**（2026-10-31 起；原 Docker 栈已拆除，`docker-compose.yml`/Dockerfile 留作回滚保险） |
+| 部署 | 单机 VPS（1C1G）宿主 **systemd + nginx**（2026-10-31 起，Docker 栈已彻底移除） |
 
 ## 快速开始
 
@@ -45,17 +45,6 @@ cd server && mvn test -Dtest=InvoiceParserTest
 
 # 浏览器端到端测试（需后端+前端+Xvfb+google-chrome-stable）
 node web/e2e/run.mjs                  # 无 Xvfb 的机器用 E2E_HEADLESS=1
-```
-
-### 容器化试用（回滚保险，非生产路径）
-
-生产已改为 systemd（下节），但 `docker-compose.yml` 与两个 Dockerfile 保留在仓库，可本地一键试用：
-
-```bash
-cp .env.example .env   # JWT_SECRET / ADMIN_PASSWORD 必填，缺任一 compose 拒绝启动
-mkdir -p certs && cp 你的证书 certs/   # origin.pem + origin.key（缺证书 nginx 起不来）
-docker compose up -d --build
-# https://localhost:8088（自签/Origin Cert 均有浏览器警告，属预期）
 ```
 
 ---
@@ -228,11 +217,11 @@ free -m                                 # 内存余量
 
 ### 回滚到 Docker（已拆除，仅极端情况）
 
-镜像/卷/Docker 包已于 2026-10-31 删除，"compose up 即回"不再存在。需要回 Docker 时：
+镜像/卷/Docker 包与仓库内的编排文件（`docker-compose.yml`、两个 Dockerfile）均已删除。需要回 Docker 时：
 
 1. 重装 Docker：`curl -fsSL https://get.docker.com | sh`
-2. `cd /opt/invoice && docker compose build`（Dockerfile 仍在仓库）
-3. 停 systemd 服务后把 `/opt/invoice/data/{db,uploads}` 拷回新卷，或直接从 MEGA 备份包恢复（见上文恢复演练）
+2. 从 git 历史取回编排文件：`git checkout be65cca^ -- docker-compose.yml server/Dockerfile web/Dockerfile`（be65cca 是删除提交）
+3. `cd /opt/invoice && docker compose build`，停 systemd 服务后把 `/opt/invoice/data/{db,uploads}` 拷回新卷，或直接从 MEGA 备份包恢复（见上文恢复演练）
 
 ---
 
@@ -257,11 +246,10 @@ web/            前端（Vue 3 + Vite）
   e2e/          浏览器端到端测试
 miniprogram/    微信小程序（体验版）
 scripts/        dev.sh 本地启停 / clean.sh 清库 / backup-mega.sh 异地备份
-docker-compose.yml   两服务编排（已退役，回滚保险用）
 AGENTS.md       工作区说明（架构细节 / 坑位清单 / 约定）
 ```
 
-`invoice_examples/`（样例发票 PDF，E2E 依赖）与 `certs/`（TLS 证书，本地容器试用用）已在 `.gitignore` 中，需自行准备。
+`invoice_examples/`（样例发票 PDF，E2E 依赖）与 `certs/`（TLS 证书副本）已在 `.gitignore` 中，需自行准备。
 
 > 历史部署文档（DEPLOY.md、docs/ 下四份）已于 2026-10-31 并入本 README，需要原文可翻 git 历史。
 
