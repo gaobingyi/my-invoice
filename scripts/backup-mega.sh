@@ -29,6 +29,17 @@ RETENTION_DAYS="${RETENTION_DAYS:-30}"       # 本地/远端保留天数
 # 注意：.env（含 JWT_SECRET / WX_SECRET / LLM_API_KEY）与 nginx 站点配置 /
 # certs/ 不在本备份范围内——VPS 全损时需靠 README 手工重建这些配置。
 
+# 心跳告警（dead-man switch）：成功 ping $HC_URL，任何失败路径 ping $HC_URL/fail；
+# cron 与脚本双双挂掉由 healthchecks 侧超时兜底（周期 1 天 + 宽限期）。
+# URL 取自 /opt/invoice/.env 的 HEALTHCHECK_URL（cron 无环境，脚本自己读）；
+# 未配置 = 静默跳过（本地跑 / 尚未注册时不得报错也不得告警）。
+HC_URL=""
+if [ -f /opt/invoice/.env ]; then
+    HC_URL="$(sed -n 's/^HEALTHCHECK_URL=//p' /opt/invoice/.env | head -1 | tr -d "\"'[:space:]")"
+fi
+# flock 让路时置 0：持锁的那个实例负责 ping，这里不重复也不谎报成功。
+HC_PING=1
+
 STAMP="$(date +%F-%H%M)"                     # 如 2026-08-27-0312
 WORK="$BACKUP_DIR/work/$STAMP"
 # 先写 .tmp，校验非空后 mv 到最终名：tar 中途被杀/磁盘满会留下半个包，在保留期
@@ -36,13 +47,27 @@ WORK="$BACKUP_DIR/work/$STAMP"
 OUT="$BACKUP_DIR/invoice-backup-$STAMP.tar.gz"
 OUT_TMP="$OUT.tmp"
 
+# 统一出口：EXIT trap 在 bash 只能设一个，清理工作目录与心跳合并在此。
+# 成功 ping $HC_URL，任何失败路径 ping $HC_URL/fail；URL 空 = 未配置，静默跳过。
+cleanup() {
+    local rc=$?
+    rm -rf "$WORK"
+    if [ "$HC_PING" = 1 ] && [ -n "$HC_URL" ]; then
+        if [ "$rc" -eq 0 ]; then
+            curl -fsS --max-time 10 "$HC_URL" >/dev/null 2>&1 || true
+        else
+            curl -fsS --max-time 10 "$HC_URL/fail" >/dev/null 2>&1 || true
+        fi
+    fi
+}
+trap cleanup EXIT
+
 # 独占锁：cron 与手动同分钟重叠时，两个 run 会写同一个 $OUT，rclone 可能读到
 # tar 到一半的文件 → 远端留下损坏副本且被同名跳过策略固化。flock -n 抢不到即退出。
 exec 9>"$BACKUP_DIR/invoice-backup.lock"
-flock -n 9 || { echo "[backup] 另一个备份进程正在运行，退出" >&2; exit 0; }
+flock -n 9 || { echo "[backup] 另一个备份进程正在运行，退出" >&2; HC_PING=0; exit 0; }
 
 mkdir -p "$WORK/db" "$WORK/uploads"
-trap 'rm -rf "$WORK"' EXIT                  # 无论成败都清工作目录
 
 echo "[backup] 开始 $STAMP"
 

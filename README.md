@@ -164,6 +164,8 @@ curl -s https://invoice.bingyi.dpdns.org/api/auth/ping          # → 200（公�
 
 可调变量（默认见文件头）：`BACKUP_DIR=/opt/backup`、`MEGA_REMOTE=invoice-mega`、`MEGA_FOLDER=invoice-backup`、`RETENTION_DAYS=30`。改完脚本先手动跑通一次并解包验证 `sqlite3 … ".schema"` 可读。
 
+**告警心跳（dead-man switch）**：脚本成功 ping `/opt/invoice/.env` 里 `HEALTHCHECK_URL` 指向的 healthchecks.io check、任何失败路径 ping `<URL>/fail`；cron 和脚本双双挂掉（无 ping）由对端超时兜底。控制台把 check 配成 **period 1 天 + grace 1 小时**即可；URL 留空 = 不告警（脚本静默跳过，本地跑不受影响）。2026-10-30 MEGA 凭据失效那次属静默失败，此机制即为补上这一环。
+
 **一致性说明**：DB 用 `sqlite3 .backup` 在线拿一致快照（WAL 下崩溃一致），绝不直接 tar DB 文件（复制到一半 WAL/SHM 会得到损坏副本）。
 
 ### 恢复演练（备份没验证=没备份）
