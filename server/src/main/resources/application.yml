@@ -80,6 +80,10 @@ server:
   port: 8080
   shutdown: graceful   # SIGTERM 后等在途请求（含 SQLite 写事务）完成再退出
   tomcat:
+    # 单用户系统：默认 200 工作线程纯浪费（每线程 ~1MB 栈承诺）；Hikari 单连接下
+    # DB 侧本就串行，20 上限仍远超真实并发。
+    threads:
+      max: 20
     # 413 时吞掉剩余请求体再写响应（默认 2MB 上限会中途 RST 连接），否则经 nginx 反代时
     # 浏览器收到 502 而非 GlobalExceptionHandler 的「文件超过 10MB 限制」提示
     max-swallow-size: -1
