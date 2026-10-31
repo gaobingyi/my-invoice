@@ -27,6 +27,9 @@ Environment="JAVA_OPTS=-Xmx256m -Xms32m -XX:+UseSerialGC"
 ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/invoice/server/target/invoice-server-1.0.0.jar
 Restart=on-failure
 RestartSec=5
+# JVM 收到 SIGTERM 跑完 shutdown hook 后按 128+15=143 退出——不加这行，
+# Conflicts 切换（stop 后不立即 start）会把单元留在 failed 状态吓人
+SuccessExitStatus=143
 # 对应 compose 的 memory: 512m（堆 256m 之外给 PDFBox/POI 原生内存留余量）
 MemoryMax=512M
 # 对应 stop_grace_period: 35s —— 等 Spring 优雅停机完成再 SIGKILL
