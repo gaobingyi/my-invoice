@@ -1,9 +1,11 @@
 [Unit]
 Description=Invoice backend (Spring Boot)
-After=network-online.target
+After=network-online.target invoice-go.service
 Wants=network-online.target
 # 双后端互斥（Go 版见 invoice-go.service）：同一时刻只允许一个后端持有
-# 127.0.0.1:8080 与共享 SQLite（WAL 单写者），start 一个 systemd 自动停另一个
+# 127.0.0.1:8080 与共享 SQLite（WAL 单写者），start 一个 systemd 自动停另一个。
+# After= 让本单元的 start 排在对方 stop 完成之后（否则并行作业下端口竞争，
+# 对方 5s 重试才起来——Go 单元同款注释）。
 Conflicts=invoice-go.service
 
 [Service]

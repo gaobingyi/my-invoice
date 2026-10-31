@@ -1,9 +1,11 @@
 [Unit]
 Description=Invoice backend (Go)
-After=network-online.target
+After=network-online.target invoice-backend.service
 Wants=network-online.target
 # 双后端互斥（Java 版见 invoice-backend.service）：同一时刻只允许一个后端持有
 # 127.0.0.1:8080 与共享 SQLite（WAL 单写者），start 一个 systemd 自动停另一个。
+# After= 让本单元的 start 排在对方 stop 完成之后——没有它两个作业并行，
+# 对方还没释放 8080 就先 bind 失败，靠 on-failure 5s 重试才起来（实测踩过）。
 # 切换用 scripts/switch-backend.sh（start + enable/disable 对调，保证重启后仍起对的后端）
 Conflicts=invoice-backend.service
 
