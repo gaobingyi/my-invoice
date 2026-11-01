@@ -5,7 +5,7 @@
 ## 布局与命令
 
 - 后端 `server/`：Java 25 + Spring Boot 3.4.5 + Spring Data JPA + SQLite（Xerial JDBC）+ PDFBox 3.0.2 + POI 5.3.0（导出 Excel）。包 `com.example.invoice`。
-- 后端 `server-go/`：Go 1.27 重写（模块名 `invoice-go`）+ stdlib net/http + modernc.org/sqlite（`SetMaxOpenConns(1)`）+ poppler `pdftotext -bbox`（外部进程）。有意偏离表、共享 DB 存储格式对齐（`internal/store/stamps.go`）、instabox 并行实例部署见其 README。
+- 后端 `server-go/`：Go 1.27 重写（模块名 `invoice-go`）+ stdlib net/http + modernc.org/sqlite（`SetMaxOpenConns(1)`）+ poppler `pdftotext -bbox`（外部进程）。有意偏离表、共享 DB 存储格式对齐（`internal/store/stamps.go`）见其 README；instabox 并行实例已于 2026-11-01 退役（VPS 上的 `instabox-keepalive` cron 是机器级保活，与本部署无关，未拆）。
 - 前端 `web/`：Vue 3 + Vite 6 + Element Plus + Axios（无 lint/typecheck 脚本）。
 - 小程序 `miniprogram/`：原生小程序，仅体验版。
 - `deploy/`：生产 systemd 单元两份（`invoice-backend.service` / `invoice-go.service`，互 `Conflicts=`）——单元文件的入库正本，改动后要同步到 VPS `/etc/systemd/system/`。

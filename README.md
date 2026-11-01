@@ -158,7 +158,7 @@ curl -s https://invoice.bingyi.dpdns.org/api/auth/ping          # → 200（公�
 
 ### 7. 双后端切换（Java/Go 共享数据）
 
-两套后端互为对方的热备/替代：同一 SQLite + uploads，systemd `Conflicts=` 互斥，nginx 不用动（upstream 恒为 `127.0.0.1:8080`）。Go 版细节（有意偏离表、存储格式对齐、instabox 并行实例）见 [server-go/README.md](server-go/README.md)。
+两套后端互为对方的热备/替代：同一 SQLite + uploads，systemd `Conflicts=` 互斥，nginx 不用动（upstream 恒为 `127.0.0.1:8080`）。Go 版细节（有意偏离表、存储格式对齐）见 [server-go/README.md](server-go/README.md)。
 
 ```bash
 # 本地仓库根执行

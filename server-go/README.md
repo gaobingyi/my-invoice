@@ -1,6 +1,6 @@
 # server-go — Go 后端（与 Java 版可切换）
 
-发票管理系统的 Go 重写后端——与 `../server`（Java/Spring Boot）**行为逐字对齐**的并行实现（API 契约、业务规则、解析算法 1:1 移植）。生产 VPS 上与 Java 版共享同一 SQLite + uploads，systemd `Conflicts` 互斥、`scripts/switch-backend.sh` 一条命令切换（默认 Java 活跃）；另有一独立实例部署在 instabox（tailnet 并行实例）。解析原理与业务规则看仓库根 [AGENTS.md](../AGENTS.md) 与 [README.md](../README.md)。
+发票管理系统的 Go 重写后端——与 `../server`（Java/Spring Boot）**行为逐字对齐**的并行实现（API 契约、业务规则、解析算法 1:1 移植）。生产 VPS 上与 Java 版共享同一 SQLite + uploads，systemd `Conflicts` 互斥、`scripts/switch-backend.sh` 一条命令切换（当前活跃后端以 `switch-backend.sh status` 为准）。解析原理与业务规则看仓库根 [AGENTS.md](../AGENTS.md) 与 [README.md](../README.md)。
 
 ## 与 Java 版的有意偏离
 
@@ -75,11 +75,6 @@ BASE=http://127.0.0.1:8080 SAMPLE=<真实发票.pdf> bash scripts/smoke.sh
 - 运行时依赖：`apt install poppler-utils poppler-data`（data 提供 Adobe-GB1 CJK 映射，缺它铁路票全乱）。
 - 备份（`scripts/backup-mega.sh`）与数据路径无关，谁当后端都照常。
 
-## 生产部署（instabox，tailnet 内并行实例）
+## instabox 并行实例（已退役，2026-11-01）
 
-- 目标机：`gaobingyi@100.125.166.11`（instabox-dev，Debian 13 + 免密 sudo + Go）；服务以系统级 systemd 单元运行，**部署目录必须在 `/opt/invoice-go`**——instabox 的家目录是会话级视图，systemd 看不到 `$HOME` 下内容。
-- 运行时依赖：`sudo apt-get install -y poppler-utils poppler-data`（data 提供 Adobe-GB1 CJK 映射，缺它铁路票全乱）。
-- 单元 `/etc/systemd/system/invoice-go.service`：`EnvironmentFile=/opt/invoice-go/.env`（JWT_SECRET/ADMIN_*/LLM_*/TRUST_PROXY），单元内固定 `UPLOAD_DIR`/`INVOICE_DB`/`TZ=Asia/Shanghai`/`SERVER_ADDRESS=100.125.166.11:8080`（仅 tailnet 可达）/`STATIC_DIR=/opt/invoice-go/static`（Vue dist 同包分发）。
-- 发版：本机 `CGO_ENABLED=0 go build` → 二进制 + dist 打包 scp → 解包 /opt → `sudo systemctl restart invoice-go`。
-- 免费版沙箱 30 分钟空闲自动暂停（无法关闭），由生产 VPS 的 `instabox-keepalive` cron 保活。
-- SSH 有连接频率限制：运维操作合并为单连接脚本、失败长间隔重试。
+曾在 instabox-dev（`gaobingyi@100.125.166.11`，tailnet 内）部署独立并行实例：systemd 单元 `/etc/systemd/system/invoice-go.service` + `/opt/invoice-go/{bin,data,static,.env}`。2026-11-01 随生产 VPS 双后端上线而退役——单元与部署目录已删，机器保留。历史部署细节（/opt 路径对 systemd 可见性、poppler-data 依赖、keepalive cron 保活、SSH 限频）翻 git 历史本文；生产 VPS 上的 `instabox-keepalive` cron 独立于本部署，未随之拆除。
