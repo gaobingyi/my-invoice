@@ -196,7 +196,8 @@ const tableRef = ref(null)
 const selected = ref([])
 const exportVisible = ref(false)
 const exporting = ref(false)
-const exportMonth = ref(currentMonth())
+// 批次月份默认上个月：月初导上月票是常态路径
+const exportMonth = ref(currentMonth(-1))
 
 const selectedSum = computed(() =>
   // 按分累加再除回，避免 0.1+0.2 类浮点误差经 money() 截断后与单行四舍五入差一分
@@ -227,7 +228,7 @@ function toggleSelect(row) {
 
 function openExportDialog() {
   if (!selected.value.length) return
-  exportMonth.value = currentMonth()
+  exportMonth.value = currentMonth(-1)
   exportVisible.value = true
 }
 

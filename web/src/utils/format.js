@@ -24,9 +24,10 @@ export function money(v) {
   return (neg ? '-' : '') + intPart + '.' + dec
 }
 
-/** 当前月 `YYYY-MM`（导出批次月份默认值） */
-export function currentMonth() {
-  const d = new Date()
+/** 当前月 `YYYY-MM`（导出批次月份默认值）；offset 为月偏移（-1 = 上个月），用「当月 1 日」构造避免大小月溢出 */
+export function currentMonth(offset = 0) {
+  const now = new Date()
+  const d = new Date(now.getFullYear(), now.getMonth() + offset, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
