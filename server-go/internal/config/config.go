@@ -15,7 +15,7 @@ type Config struct {
 	StaticDir  string // STATIC_DIR：Vue dist 目录，空 = 不服务静态文件
 
 	JWTSecret        string // JWT_SECRET，启动时强制 ≥32 字节
-	JWTExpireSeconds int    // 固定 86400（Java 侧仅 yml 可调，无 env）
+	JWTExpireSeconds int    // 固定 2592000（Java 侧仅 yml 可调，无 env）
 
 	RateLimitEnabled bool // 默认 true，无 env 开关（对齐 login.rate-limit-enabled）
 	TrustProxy       bool // TRUST_PROXY：true 时 client IP 取 X-Real-IP
@@ -41,7 +41,7 @@ func Load() (*Config, error) {
 		ServerAddr:        env("SERVER_ADDRESS", ":8080"),
 		StaticDir:         os.Getenv("STATIC_DIR"),
 		JWTSecret:         env("JWT_SECRET", "change-me-in-production-please-32bytes-or-more"),
-		JWTExpireSeconds:  86400,
+		JWTExpireSeconds:  2592000,
 		RateLimitEnabled:  true,
 		TrustProxy:        envBool("TRUST_PROXY", false),
 		AdminUsername:     env("ADMIN_USERNAME", "admin"),

@@ -39,7 +39,7 @@ upload-dir: ${UPLOAD_DIR:./uploads}
 
 jwt:
   secret: ${JWT_SECRET:change-me-in-production-please-32bytes-or-more}
-  expire-seconds: 86400   # 24h
+  expire-seconds: 2592000  # 30d
 
 login:
   rate-limit-enabled: true  # 登录端点：单 IP 失败次数超阈值 → 401（内存计数，重启清零）

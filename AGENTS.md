@@ -167,7 +167,7 @@ bash scripts/backup-mega.sh             # 见 README「备份与恢复」
 - 登录：`POST /api/auth/login`（body `{username,password}`）→ `{token,username}`。**公开**路径只有 `/api/auth/**`（含 `GET /api/auth/ping`，供 Docker healthcheck），其余 `/api/**` 一律 401。
 - 用户表 `app_user`：单管理员，`AuthService.run`（CommandLineRunner）若无用户则 seed（`ADMIN_USERNAME`/`ADMIN_PASSWORD` 覆盖，默认 `admin`/`admin123`），BCrypt 散列。密码错误 → `BadCredentialsException` → 401。
 - 登录限流：`LoginRateLimiter`（内存计数，按 IP，`login.rate-limit-enabled` 默认开启），防暴力破解。
-- 认证链路：`JwtAuthenticationFilter`（Bearer 解析 → `SecurityContextHolder`）→ `JwtTokenService`（jjwt，secret 从 `JWT_SECRET` 读，默认值仅限 dev，`expire-seconds: 86400`）。CSRF 关闭、无 Session（STATELESS）。
+- 认证链路：`JwtAuthenticationFilter`（Bearer 解析 → `SecurityContextHolder`）→ `JwtTokenService`（jjwt，secret 从 `JWT_SECRET` 读，默认值仅限 dev，`expire-seconds: 2592000`（30 天））。CSRF 关闭、无 Session（STATELESS）。
 - 客户端 IP 解析 `AuthController.clientIp()`：`trust-proxy=true` 时取 `X-Real-IP`（由 nginx 覆盖），否则 `getRemoteAddr()`。**不用 `X-Forwarded-For`**：它会追加客户端自带的 XFF，取 `split(",")[0]` 是可伪造值，能绕过限流并定向陷害某 IP。
 - **文件端点带不了 header**：预览/下载前端用 `fetchFile()`（axios `responseType: 'blob'`）取回 object URL，不再用裸 URL 字符串。改前端勿退回 `fileUrl()` 裸链。
 - E2E/健康检查：所有 API 直调需 `Authorization: Bearer` 头；E2E 先登录拿 token，页面用 `evaluateOnNewDocument` 注入 localStorage。
